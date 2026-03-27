@@ -23,3 +23,10 @@ export interface Action {
   type: 'stop';
   status: 'pending' | 'completed';
 }
+
+export interface Log {
+  timestamp: string;
+  resourceId: string;
+  type: 'anomaly' | 'action';
+  message: string;
+}

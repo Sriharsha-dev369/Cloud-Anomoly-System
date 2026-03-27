@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { generateMetrics } from '../services/metricsService';
 
-export function getMetrics(_req: Request, res: Response): void {
-  res.json(generateMetrics());
+export function getMetrics(req: Request, res: Response): void {
+  const resourceId = req.query.resourceId as string | undefined;
+  res.json(generateMetrics(resourceId));
 }
