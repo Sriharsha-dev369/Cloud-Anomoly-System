@@ -15,7 +15,7 @@ export interface Metric {
 
 export interface Anomaly {
   resourceId: string;
-  reason: 'low_usage';
+  reason: 'low_usage' | 'spike_usage';
   detectedAt: string;
 }
 

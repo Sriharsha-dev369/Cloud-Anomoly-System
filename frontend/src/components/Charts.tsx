@@ -40,13 +40,14 @@ export default function Charts({ metrics, anomalies, stoppedAt }: Props) {
   }));
 
   const anomalyTime = anomalies.length > 0 ? formatTime(anomalies[0].detectedAt) : null;
+  const anomalyColor = anomalies[0]?.reason === 'spike_usage' ? '#ffc107' : '#dc3545';
   const stoppedTime = stoppedAt ? formatTime(stoppedAt) : null;
 
-  const sharedAxes = (unit?: string) => (
+  const sharedAxes = (unit?: string, domain?: [number, number], tickFormatter?: (v: number) => string) => (
     <>
       <CartesianGrid strokeDasharray="3 3" />
       <XAxis dataKey="time" tick={{ fontSize: 11 }} interval={9} />
-      <YAxis unit={unit} tick={{ fontSize: 11 }} />
+      <YAxis unit={unit} domain={domain} tick={{ fontSize: 11 }} tickFormatter={tickFormatter} />
     </>
   );
 
@@ -55,9 +56,9 @@ export default function Charts({ metrics, anomalies, stoppedAt }: Props) {
       {anomalyTime && (
         <ReferenceLine
           x={anomalyTime}
-          stroke="#dc3545"
+          stroke={anomalyColor}
           strokeDasharray="4 2"
-          label={{ value: 'Anomaly', fill: '#dc3545', fontSize: 11, position: 'insideTopRight' }}
+          label={{ value: 'Anomaly', fill: anomalyColor, fontSize: 11, position: 'insideTopRight' }}
         />
       )}
       {stoppedTime && (
@@ -74,16 +75,14 @@ export default function Charts({ metrics, anomalies, stoppedAt }: Props) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
       <Chart title="CPU Usage (%)" data={data}>
-        {sharedAxes('%')}
-        <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
+        {sharedAxes('%', [0, 100])}
         <Tooltip formatter={(v) => [`${v}%`, 'CPU']} />
         {markers}
         <Line type="monotone" dataKey="cpu" stroke="#4f86f7" dot={false} strokeWidth={2} />
       </Chart>
 
       <Chart title="Cost ($)" data={data}>
-        {sharedAxes()}
-        <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
+        {sharedAxes(undefined, undefined, (v: number) => `$${v.toFixed(2)}`)}
         <Tooltip formatter={(v) => [`$${Number(v).toFixed(4)}`, 'Cost']} />
         {markers}
         <Line type="monotone" dataKey="cost" stroke="#28a745" dot={false} strokeWidth={2} />

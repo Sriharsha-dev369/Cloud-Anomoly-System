@@ -2,11 +2,12 @@ interface Props {
   status: 'running' | 'stopped';
   hasAnomaly: boolean;
   stopping: boolean;
+  restarting: boolean;
   onStop: () => void;
   onRestart: () => void;
 }
 
-export default function StopButton({ status, hasAnomaly, stopping, onStop, onRestart }: Props) {
+export default function StopButton({ status, hasAnomaly, stopping, restarting, onStop, onRestart }: Props) {
   if (status === 'stopped') {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -15,9 +16,10 @@ export default function StopButton({ status, hasAnomaly, stopping, onStop, onRes
         </div>
         <button
           onClick={onRestart}
-          style={{ padding: '10px 20px', background: '#28a745', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}
+          disabled={restarting}
+          style={{ padding: '10px 20px', background: restarting ? '#adb5bd' : '#28a745', color: '#fff', border: 'none', borderRadius: 6, cursor: restarting ? 'not-allowed' : 'pointer', fontSize: 14 }}
         >
-          Restart Instance
+          {restarting ? 'Restarting...' : 'Restart Instance'}
         </button>
       </div>
     );

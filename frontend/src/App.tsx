@@ -19,6 +19,7 @@ export default function App() {
   const [metrics, setMetrics] = useState<Metric[]>([])
   const [anomalies, setAnomalies] = useState<Anomaly[]>([])
   const [stopping, setStopping] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   const [stopError, setStopError] = useState<string | null>(null)
   const [savings, setSavings] = useState(0)
   const [autoMode, setAutoMode] = useState(false)
@@ -123,6 +124,7 @@ export default function App() {
 
   function handleRestart() {
     if (!selectedId) return
+    setRestarting(true)
     setStopError(null)
     fetch('/api/action/restart', {
       method: 'POST',
@@ -142,6 +144,7 @@ export default function App() {
         intervalRef.current = setInterval(() => fetchData(selectedId), 10_000)
       })
       .catch((err) => setStopError(String(err)))
+      .finally(() => setRestarting(false))
   }
 
   return (
@@ -168,7 +171,7 @@ export default function App() {
       </div>
 
       <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 24 }}>
-        <StopButton status={status} hasAnomaly={anomalies.length > 0} stopping={stopping} onStop={handleStop} onRestart={handleRestart} />
+        <StopButton status={status} hasAnomaly={anomalies.length > 0} stopping={stopping} restarting={restarting} onStop={handleStop} onRestart={handleRestart} />
         {stopError && <span style={{ color: '#dc3545', fontSize: 14 }}>Error: {stopError}</span>}
         <Savings amount={savings} active={status === 'stopped'} />
       </div>
