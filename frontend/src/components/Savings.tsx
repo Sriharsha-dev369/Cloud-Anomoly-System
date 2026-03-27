@@ -16,6 +16,7 @@ export default function Savings({ amount, active }: Props) {
       <div style={{ fontSize: 28, fontWeight: 700, color: active ? '#155724' : '#6c757d' }}>
         ₹{amount.toFixed(4)}
       </div>
+      {active && <div style={{ fontSize: 11, color: '#28a745', marginTop: 4 }}>Cost stopped increasing</div>}
     </div>
   );
 }

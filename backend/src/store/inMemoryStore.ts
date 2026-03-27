@@ -73,15 +73,19 @@ export function getResource(id?: string): Resource {
 /** Backward-compat: defaults to first resource when no id supplied */
 export function stopResource(id?: string): Resource {
   const resource = getResource(id ?? firstId());
+  const now = new Date().toISOString();
   resource.status = 'stopped';
-  store.stoppedAt.set(resource.id, new Date().toISOString());
+  resource.stoppedAt = now;
+  store.stoppedAt.set(resource.id, now);
   store.loggedAnomalies.delete(resource.id);
+  store.restartedAt.delete(resource.id);
   return resource;
 }
 
 export function restartResource(id?: string): Resource {
   const resource = getResource(id ?? firstId());
   resource.status = 'running';
+  resource.stoppedAt = undefined;
   store.restartedAt.set(resource.id, new Date().toISOString());
   store.stoppedAt.delete(resource.id);
   return resource;

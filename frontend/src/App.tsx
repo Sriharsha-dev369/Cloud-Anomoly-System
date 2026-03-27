@@ -34,7 +34,7 @@ export default function App() {
 
   function fetchData(id: string) {
     fetch(`/api/metrics${qs(id)}`).then((r) => r.json()).then(setMetrics).catch(console.error)
-    fetchLogs()
+    fetchLogs(id)
     fetch(`/api/anomalies${qs(id)}`).then((r) => r.json()).then((detected: Anomaly[]) => {
       setAnomalies(detected)
       // Sync resource status in case auto mode stopped it on the backend
@@ -67,16 +67,17 @@ export default function App() {
     fetch(`/api/savings${qs(id)}`).then((r) => r.json()).then((d) => setSavings(d.savings)).catch(console.error)
   }
 
-  function fetchLogs() {
-    fetch('/api/logs').then((r) => r.json()).then(setLogs).catch(console.error)
+  function fetchLogs(id: string) {
+    fetch(`/api/logs${qs(id)}`).then((r) => r.json()).then(setLogs).catch(console.error)
   }
 
-  // Load resource list once
+  // Load resource list + autoMode once
   useEffect(() => {
     fetch('/api/resources').then((r) => r.json()).then((list: Resource[]) => {
       setResources(list)
       if (list.length > 0) setSelectedId(list[0].id)
     }).catch(console.error)
+    fetch('/api/automode').then((r) => r.json()).then((d: { autoMode: boolean }) => setAutoMode(d.autoMode)).catch(console.error)
   }, [])
 
   // Re-fetch + re-poll when selected resource changes
@@ -135,6 +136,7 @@ export default function App() {
       .then((data: { resource: Resource }) => {
         setResources((prev) => prev.map((r) => r.id === data.resource.id ? data.resource : r))
         setSavings(0)
+        setAnomalies([])
         clearPoll()
         fetchData(selectedId)
         intervalRef.current = setInterval(() => fetchData(selectedId), 10_000)
@@ -156,7 +158,7 @@ export default function App() {
 
       <div style={{ marginTop: 24 }}>
         {metrics.length > 0
-          ? <Charts metrics={metrics} anomalies={anomalies} status={status} />
+          ? <Charts metrics={metrics} anomalies={anomalies} stoppedAt={selectedResource?.stoppedAt} />
           : <p style={{ color: '#999' }}>Loading metrics...</p>
         }
       </div>

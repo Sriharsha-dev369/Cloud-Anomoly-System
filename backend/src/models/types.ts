@@ -3,6 +3,7 @@ export interface Resource {
   name: string;
   status: 'running' | 'stopped';
   costPerHour: number;
+  stoppedAt?: string;
 }
 
 export interface Metric {

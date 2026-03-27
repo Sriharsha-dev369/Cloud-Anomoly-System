@@ -14,11 +14,11 @@ export function getAnomalies(req: Request, res: Response): void {
       if (!hasAnomalyBeenLogged(resource.id)) {
         addLog({ resourceId: resource.id, type: 'anomaly', message: `Anomaly detected on ${resource.name}: low CPU usage` });
         markAnomalyLogged(resource.id);
-      }
 
-      if (getAutoMode()) {
-        stopResource(resourceId);
-        addLog({ resourceId: resource.id, type: 'action', message: `${resource.name} stopped automatically by system` });
+        if (getAutoMode()) {
+          stopResource(resourceId);
+          addLog({ resourceId: resource.id, type: 'action', message: `${resource.name} stopped automatically by system` });
+        }
       }
     }
   }

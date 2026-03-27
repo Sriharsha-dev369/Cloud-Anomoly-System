@@ -13,7 +13,7 @@ import { Anomaly, Metric } from '../types';
 interface Props {
   metrics: Metric[];
   anomalies: Anomaly[];
-  status: 'running' | 'stopped';
+  stoppedAt?: string;
 }
 
 function formatTime(timestamp: string): string {
@@ -32,7 +32,7 @@ function Chart({ title, data, children }: { title: string; data: object[]; child
   );
 }
 
-export default function Charts({ metrics, anomalies, status }: Props) {
+export default function Charts({ metrics, anomalies, stoppedAt }: Props) {
   const data = metrics.map((m) => ({
     time: formatTime(m.timestamp),
     cpu: m.cpu,
@@ -40,7 +40,7 @@ export default function Charts({ metrics, anomalies, status }: Props) {
   }));
 
   const anomalyTime = anomalies.length > 0 ? formatTime(anomalies[0].detectedAt) : null;
-  const stoppedTime = status === 'stopped' && data.length > 0 ? data[data.length - 1].time : null;
+  const stoppedTime = stoppedAt ? formatTime(stoppedAt) : null;
 
   const sharedAxes = (unit?: string) => (
     <>

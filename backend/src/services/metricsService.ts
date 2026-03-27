@@ -26,13 +26,32 @@ export function generateMetrics(resourceId?: string): Metric[] {
     : null;
   const inRecovery = minutesSinceRestart !== null && minutesSinceRestart < RECOVERY_MINUTES;
 
+  const stoppedAtMs = resource.stoppedAt ? new Date(resource.stoppedAt).getTime() : null;
+
+  // Cost value at the moment of stop: how far into the 60-min window the stop occurred
+  const windowStartMs = now - 59 * 60 * 1000;
+  const costAtStop = stoppedAtMs
+    ? parseFloat((resource.costPerHour * (Math.max(0, stoppedAtMs - windowStartMs) / (60 * 60 * 1000))).toFixed(4))
+    : null;
+
   for (let i = 59; i >= 0; i--) {
-    const timestamp = new Date(now - i * 60 * 1000).toISOString();
-    const inDrop = !inRecovery && i <= pattern.dropAt;
-    const cpu = inDrop
-      ? Math.random() * pattern.dropMax
-      : pattern.normalMin + Math.random() * (pattern.normalMax - pattern.normalMin);
-    const cost = parseFloat((resource.costPerHour * ((60 - i) / 60)).toFixed(4));
+    const pointMs = now - i * 60 * 1000;
+    const timestamp = new Date(pointMs).toISOString();
+    const isStopped = stoppedAtMs !== null && pointMs >= stoppedAtMs;
+
+    let cpu: number;
+    let cost: number;
+
+    if (isStopped) {
+      cpu = parseFloat((Math.random() * 2).toFixed(1));
+      cost = costAtStop!;
+    } else {
+      const inDrop = !inRecovery && i <= pattern.dropAt;
+      cpu = inDrop
+        ? Math.random() * pattern.dropMax
+        : pattern.normalMin + Math.random() * (pattern.normalMax - pattern.normalMin);
+      cost = parseFloat((resource.costPerHour * ((60 - i) / 60)).toFixed(4));
+    }
 
     metrics.push({ resourceId: resource.id, timestamp, cpu: parseFloat(cpu.toFixed(1)), cost });
   }
