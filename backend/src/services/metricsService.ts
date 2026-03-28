@@ -13,7 +13,7 @@ const patterns: Record<string, { normalMin: number; normalMax: number; dropAt: n
 const defaultPattern = { normalMin: 65, normalMax: 80, dropAt: 20, dropMax: 2 };
 
 // Minutes of normal CPU shown after restart before the drop/spike pattern returns
-const RECOVERY_MINUTES = 1;
+const RECOVERY_MINUTES = 15;
 
 export async function generateMetrics(resourceId?: string): Promise<Metric[]> {
   const resource = await getResource(resourceId);

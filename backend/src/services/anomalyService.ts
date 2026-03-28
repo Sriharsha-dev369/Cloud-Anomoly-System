@@ -19,14 +19,14 @@ export function detectAnomalies(metrics: Metric[]): Anomaly[] {
     const costs = last10.map((m) => m.cost);
     const costIncreasing = costs[costs.length - 1] > costs[0];
     if (costIncreasing) {
-      return [{ resourceId, reason: 'low_usage', detectedAt }];
+      return [{ resourceId, type: 'low_usage' as const, detectedAt }];
     }
   }
 
   // spike_usage: CPU > 90% for 10 consecutive mins
   const allHigh = last10.every((m) => m.cpu > HIGH_CPU_THRESHOLD);
   if (allHigh) {
-    return [{ resourceId, reason: 'spike_usage', detectedAt }];
+    return [{ resourceId, type: 'spike_usage' as const, detectedAt }];
   }
 
   return [];

@@ -40,7 +40,7 @@ export default function Charts({ metrics, anomalies, stoppedAt }: Props) {
   }));
 
   const anomalyTime = anomalies.length > 0 ? formatTime(anomalies[0].detectedAt) : null;
-  const anomalyColor = anomalies[0]?.reason === 'spike_usage' ? '#ffc107' : '#dc3545';
+  const anomalyColor = anomalies[0]?.type === 'spike_usage' ? '#ffc107' : '#dc3545';
   const stoppedTime = stoppedAt ? formatTime(stoppedAt) : null;
 
   const sharedAxes = (unit?: string, domain?: [number, number], tickFormatter?: (v: number) => string) => (

@@ -32,7 +32,7 @@ export default function AnomalyAlert({ anomalies }: Props) {
   }
 
   const a = anomalies[0];
-  const c = config[a.reason];
+  const c = config[a.type];
   return (
     <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

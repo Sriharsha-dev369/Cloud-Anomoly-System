@@ -15,7 +15,7 @@ export interface Metric {
 
 export interface Anomaly {
   resourceId: string;
-  reason: 'low_usage' | 'spike_usage';
+  type: 'low_usage' | 'spike_usage';
   detectedAt: string;
 }
 
@@ -23,6 +23,7 @@ export interface Action {
   resourceId: string;
   type: 'stop';
   status: 'pending' | 'completed';
+  triggeredBy: 'user' | 'system';
 }
 
 export interface Log {

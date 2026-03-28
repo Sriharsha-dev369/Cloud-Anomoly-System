@@ -36,19 +36,14 @@ export default function App() {
   function fetchData(id: string) {
     fetch(`/api/metrics${qs(id)}`).then((r) => r.json()).then(setMetrics).catch(console.error)
     fetchLogs(id)
-    fetch(`/api/anomalies${qs(id)}`).then((r) => r.json()).then((detected: Anomaly[]) => {
-      setAnomalies(detected)
-      // Sync resource status in case auto mode stopped it on the backend
-      if (detected.length > 0) {
-        fetch('/api/resources').then((r) => r.json()).then((list: Resource[]) => {
-          setResources(list)
-          const resource = list.find((r) => r.id === id)
-          if (resource?.status === 'stopped') {
-            clearPoll()
-            fetchSavings(id)
-            intervalRef.current = setInterval(() => fetchSavings(id), 5_000)
-          }
-        }).catch(console.error)
+    fetch(`/api/anomalies${qs(id)}`).then((r) => r.json()).then(setAnomalies).catch(console.error)
+    fetch('/api/resources').then((r) => r.json()).then((list: Resource[]) => {
+      setResources(list)
+      const resource = list.find((r) => r.id === id)
+      if (resource?.status === 'stopped') {
+        clearPoll()
+        fetchSavings(id)
+        intervalRef.current = setInterval(() => fetchSavings(id), 5_000)
       }
     }).catch(console.error)
   }
@@ -114,7 +109,9 @@ export default function App() {
       })
       .then((data: { resource: Resource }) => {
         setResources((prev) => prev.map((r) => r.id === data.resource.id ? data.resource : r))
+        setAnomalies([])
         clearPoll()
+        fetchLogs(selectedId)
         fetchSavings(selectedId)
         intervalRef.current = setInterval(() => fetchSavings(selectedId), 5_000)
       })
