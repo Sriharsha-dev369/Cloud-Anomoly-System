@@ -7,6 +7,7 @@ import StatusBadge from './components/StatusBadge'
 import ResourceSelector from './components/ResourceSelector'
 import AutoModeToggle from './components/AutoModeToggle'
 import LogsTimeline from './components/LogsTimeline'
+import LoginForm from './components/LoginForm'
 import { Anomaly, Log, Metric, Resource } from './types'
 
 function qs(resourceId: string) {
@@ -14,6 +15,7 @@ function qs(resourceId: string) {
 }
 
 export default function App() {
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'))
   const [resources, setResources] = useState<Resource[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [metrics, setMetrics] = useState<Metric[]>([])
@@ -25,6 +27,10 @@ export default function App() {
   const [autoMode, setAutoMode] = useState(false)
   const [logs, setLogs] = useState<Log[]>([])
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  if (!token) {
+    return <LoginForm onLogin={setToken} />
+  }
 
   const selectedResource = resources.find((r) => r.id === selectedId)
   const status = selectedResource?.status ?? 'running'
@@ -94,13 +100,18 @@ export default function App() {
     setSelectedId(id)
   }
 
+  function handleLogout() {
+    localStorage.removeItem('token')
+    setToken(null)
+  }
+
   function handleStop() {
     if (!selectedId) return
     setStopping(true)
     setStopError(null)
     fetch('/api/action/stop', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ resourceId: selectedId }),
     })
       .then((r) => {
@@ -125,7 +136,7 @@ export default function App() {
     setStopError(null)
     fetch('/api/action/restart', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ resourceId: selectedId }),
     })
       .then((r) => {
@@ -149,6 +160,12 @@ export default function App() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 22 }}>Cloud Anomaly Dashboard</h1>
         <StatusBadge status={status} />
+        <button
+          onClick={handleLogout}
+          style={{ marginLeft: 'auto', padding: '5px 14px', background: 'none', border: '1px solid #ced4da', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#6c757d' }}
+        >
+          Logout
+        </button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>

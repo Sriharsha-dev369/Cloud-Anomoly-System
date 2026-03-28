@@ -1,51 +1,132 @@
-Cloud Cost Optimizer V2 – Agent Instructions (Post-MVP)
+Cloud Cost Optimizer V2.5 – Agent Instructions (Winning Foundation)
 PROJECT GOAL
 
-Evolve MVP into a realistic, product-like system while preserving simplicity.
+Transform system from MVP → structured, realistic, extensible product
 
-Demonstrate:
+Focus on:
 
-Detection → (Auto/Manual) Action → Savings → History → Multi-resource clarity
+Reliability + Modularity + Realistic flow
 
-This is still not full production, but should feel like a usable system, not a demo.
+NOT intelligence yet (that comes after this phase)
 
-CORE FLOW (UPDATED)
+CORE FLOW (REFINED)
 
-Metric → Detection → Decision (Auto/Manual) → Action → Savings → Logs → UI
+Metrics → Detection Pipeline → Decision → Action → Cost Engine → Savings → Logs → UI
 
-The system must clearly show:
+System must clearly show:
 
-Multiple resources generating metrics
-Anomalies detected per resource
-System can act automatically OR user triggers action
-Actions affect resource state
-Savings accumulate over time
-Events are recorded and visible
+Data ingestion (mock or adapter)
+Modular anomaly detection
+Action execution
+Cost impact calculation
+Persistent tracking
+Clear UI feedback
 
-If all 6 work → V2 complete
+If all 6 work → foundation complete
 
-HARD RULES (MUST FOLLOW)
-Do NOT introduce microservices
-Do NOT use complex cloud infra
-Do NOT add ML models
-Do NOT overengineer architecture
-Keep logic understandable in one pass
-Reuse MVP logic wherever possible
-Keep system debuggable and demo-friendly
-SCOPE UPGRADES (FROM MVP)
-Added Capabilities
-Multiple resources
-Auto mode (automatic actions)
-Persistent storage (basic DB)
-Event logs / timeline
-Improved anomaly detection (multiple rules)
-Basic authentication (simple, minimal)
+HARD RULES (STRICT)
+Do NOT introduce ML models
+Do NOT overengineer infra
+Do NOT add unnecessary features
+Do NOT tightly couple modules
+Do NOT break MVP logic
+Always extend, never rewrite
+CORE ARCHITECTURE (NEW)
+Frontend (Dashboard + Views)
+↓
+Backend API Layer
+↓
+Detection Pipeline (modular)
+↓
+Decision + Action Layer
+↓
+Cost Engine
+↓
+Data Layer (DB)
+↓
+Cloud Adapter (mock / optional AWS)
+KEY SYSTEM COMPONENTS
+
+1. Cloud Adapter Layer
+
+Purpose:
+
+Abstract data source
+
+Modes:
+
+mock (default)
+optional AWS CloudWatch (read-only)
+
+Rule:
+
+Same interface for both
+
+getMetrics(resourceId): Metric[] 2. Detection Pipeline (IMPORTANT)
+
+Move from single rule → modular detectors
+
+Structure:
+
+detectors = [
+lowUsageDetector,
+spikeDetector
+]
+
+Each detector:
+
+detect(metrics) → anomaly | null
+
+👉 Easy to extend later
+
+3. Action Layer
+
+Handles:
+
+stop resource
+future actions (resize etc.)
+
+Rules:
+
+Must be safe
+Must update DB
+Must log events 4. Cost Engine (NEW)
+
+Separate logic:
+
+calculateSavings(resource, duration)
+
+Responsibilities:
+
+Compute savings
+Aggregate totals
+Support future prediction
+
+👉 DO NOT mix with business logic
+
+5. Data Layer (PERSISTENT)
+
+Use:
+
+MongoDB / SQLite / simple DB
+
+Store:
+
+resources
+metrics
+anomalies
+actions
+logs
+
+Rule:
+
+Keep queries simple
 
 DATA MODELS (UPDATED)
 Resource
 id
 name
-status ("running" | "stopped")
+status
 costPerHour
 Metric
 resourceId
@@ -53,151 +134,145 @@ timestamp
 cpu
 cost
 Anomaly
+id
 resourceId
 type ("low_usage" | "spike_usage")
 detectedAt
 Action
+id
 resourceId
 type ("stop")
-status ("pending" | "completed")
-triggeredBy ("user" | "system")
+status
+triggeredBy
 Log
+id
 timestamp
 resourceId
-type ("anomaly" | "action")
+type
 message
-User (NEW – BASIC ONLY)
-id
-username
-password (plain or hashed – keep simple)
-
-API CONTRACT (EXTENDED)
-GET /metrics
-
-Return metrics for all or selected resource
-
-GET /anomalies
-
-Return anomalies (filter by resource optional)
-
-POST /action/stop
-Stop a resource
-Works for manual + auto mode
-GET /savings
-
-Return total accumulated savings
-
-GET /logs
-
-Return timeline of events (anomalies + actions)
-
-POST /auth/login
-
-Basic login (no complex auth system)
-
+API CONTRACT (UPDATED)
 GET /resources
 
 Return all resources
 
+GET /metrics?resourceId=
+
+Return metrics per resource
+
+GET /anomalies?resourceId=
+
+Return anomalies
+
+POST /action/stop
+
+Trigger stop action
+
+GET /savings
+
+Return aggregated savings
+
+GET /logs
+
+Return system logs
+
 BUSINESS LOGIC RULES
-Anomaly Detection (UPGRADED)
+Detection
 Low usage:
-CPU < 20% for a duration
-Spike usage:
-Cost spike > 2× average
-Auto Mode
+CPU < 20% for duration
+Spike:
+Cost > 2× average
+Action
+Stop resource
+Update status
+Log event
+Cost Engine
+savings = costPerHour × stoppedDuration
+Must accumulate globally
+Logging (MANDATORY)
 
-If enabled:
+Log:
 
-System automatically triggers stop on anomaly
-Log must indicate "system triggered"
+anomaly detection
+action trigger
+action completion
+UI REQUIREMENTS
+Dashboard
+Multi-resource list
+CPU + cost charts
+Anomaly indicators
+Savings summary
+Detail View (NEW)
 
-If disabled:
+Per resource:
 
-User manually triggers action
-Savings
-savings = costPerHour × hoursStopped
-Accumulate over time (not reset per action)
-Logs (MANDATORY)
-
-Every important event must be logged:
-
-anomaly detected
-action triggered
-action completed
-STORAGE
-Replace in-memory store with simple DB
-(MongoDB / SQLite / JSON file acceptable)
-No complex schema design
-Keep queries simple
+metrics
+anomalies
+actions
+logs
+UX Signals
+loading states
+empty states
+error handling
 EXPECTED PROJECT STRUCTURE
 
 backend/
 
 server.js
 routes/
+adapters/ ← NEW
+detectors/ ← NEW
 services/
-store/ (DB logic)
-modules/ (resource, anomaly, action, logs)
+cost/ ← NEW
+modules/
+store/
 
 frontend/
 
 App.jsx
+pages/
+Dashboard.jsx
+ResourceDetail.jsx
 components/
-ResourceSelector.jsx
-Charts.jsx
-AnomalyPanel.jsx
-ActionControl.jsx
-LogsTimeline.jsx
-Savings.jsx
-
 IMPLEMENTATION STYLE
-Keep functions modular and reusable
-Avoid deep abstraction layers
-Prefer simple services over complex patterns
-Keep logic readable in <30 seconds per file
-Prioritize clarity over scalability
-UI REQUIREMENTS (UPDATED DASHBOARD)
-
-Single dashboard with:
-
-Resource selector (switch between resources)
-CPU + cost charts per resource
-Anomaly display per resource
-Auto mode toggle (ON/OFF)
-Stop action button
-Logs / timeline panel
-Total savings display
+Small, focused modules
+Clear separation of concerns
+Avoid deep nesting
+Prefer simple functions
+Keep files readable quickly
 SUCCESS CHECKLIST (MUST PASS)
-Multiple resources visible and switchable
-Anomalies detected per resource
-Auto mode works correctly
-Manual action still works
-Logs show full history
-Savings accumulate correctly
-Data persists after refresh
-System feels like a real tool
-AGENT BEHAVIOR INSTRUCTIONS
-Extend MVP, do NOT rewrite it
-Reuse existing logic wherever possible
-Add features incrementally
-Do not break existing flow
-Keep system demo-friendly
-Avoid unnecessary dependencies
+Multi-resource system works
+Detection pipeline is modular
+Data persists after restart
+Cost engine calculates correctly
+Logs are accurate and complete
+UI reflects real system state
+System feels structured and stable
 PRIORITY ORDER
-Multi-resource support
-Persistent storage
-Improved anomaly detection
-Auto mode
-Logs system
-UI upgrades
-Basic authentication
+Multi-resource + DB
+Detection pipeline
+Cost engine separation
+Adapter layer
+UI (dashboard + detail view)
+Stability (loading, errors)
+WHAT COMES NEXT (Phase 3 – LIMITED)
+
+After this:
+
+Add ONLY:
+
+Predictive savings
+Recommendation system
+
+DO NOT add more
+
 FINAL NOTE
 
-This is V2 (Post-MVP).
+This phase builds:
 
-Realistic > perfect
-Clear flow > complex system
-Feature depth > feature count
+“A system that looks real”
 
-The system should feel like something a startup could demo — not just a prototype.
+Next phase builds:
+
+“A system that looks intelligent”
+
+Don't mix both.
