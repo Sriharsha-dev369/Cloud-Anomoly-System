@@ -2,11 +2,20 @@ import {
   CloudWatchClient,
   GetMetricStatisticsCommand,
 } from '@aws-sdk/client-cloudwatch';
+import {
+  EC2Client,
+  StopInstancesCommand,
+  StartInstancesCommand,
+  DescribeInstancesCommand,
+} from '@aws-sdk/client-ec2';
 import { Metric, Resource } from '../models/types';
 import { CloudAdapter } from './types';
 import { mockAdapter } from './mockAdapter';
+import { getCostPerHour } from '../services/costRates';
+import { withRetry, classifyAwsError, isPermissionError } from '../utils/retry';
 
 const client = new CloudWatchClient({ region: process.env.AWS_REGION ?? 'ap-south-1' });
+const ec2 = new EC2Client({ region: process.env.AWS_REGION ?? 'ap-south-1' });
 
 // Parses AWS_INSTANCE_MAP=res-001:i-0abc,res-002:i-0def into a lookup map.
 function buildInstanceMap(): Record<string, string> {
@@ -24,6 +33,26 @@ const instanceMap = buildInstanceMap();
 function getInstanceId(resourceId: string): string | null {
   // Explicit mapping takes priority; fall back to treating the ID directly as an instance ID
   return instanceMap[resourceId] ?? (resourceId.startsWith('i-') ? resourceId : null);
+}
+
+/**
+ * Polls DescribeInstances every 3s until instance reaches targetState or timeout.
+ * Throws on timeout so the caller knows the state was NOT confirmed.
+ */
+async function waitForInstanceState(
+  instanceId: string,
+  targetState: 'stopped' | 'running',
+  timeoutMs = 60_000
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 3_000));
+    const resp = await ec2.send(new DescribeInstancesCommand({ InstanceIds: [instanceId] }));
+    const currentState = resp.Reservations?.[0]?.Instances?.[0]?.State?.Name;
+    if (currentState === targetState) return;
+    console.debug(`[awsAdapter] Waiting for ${instanceId}: '${currentState}' → '${targetState}'`);
+  }
+  throw new Error(`Timeout: ${instanceId} did not reach '${targetState}' within ${timeoutMs / 1000}s`);
 }
 
 // Fills null slots with linear interpolation between known values.
@@ -85,8 +114,9 @@ export const awsAdapter: CloudAdapter = {
         Statistics: ['Average'],
       });
 
-      const response = await client.send(cmd);
+      const response = await withRetry(() => client.send(cmd));
       const datapoints = response.Datapoints ?? [];
+      console.debug(`[awsAdapter] CloudWatch returned ${datapoints.length} datapoint(s) for ${instanceId}`);
 
       if (datapoints.length === 0) {
         console.log(`[awsAdapter] No CloudWatch data for ${instanceId}, falling back to mock`);
@@ -117,9 +147,14 @@ export const awsAdapter: CloudAdapter = {
         const pointMs = nowMs - i * 60_000;
         const timestamp = new Date(pointMs).toISOString();
         const cpu = smoothedCpu[59 - i];
-        const cost = parseFloat((resource.costPerHour * ((60 - i) / 60)).toFixed(4));
+        const cost = parseFloat((getCostPerHour(resource.instanceType, resource.costPerHour) * ((60 - i) / 60)).toFixed(4));
         metrics.push({ resourceId: resource.id, timestamp, cpu, cost });
       }
+
+      const cpuValues = smoothedCpu.filter((v) => v > 0);
+      const cpuMin = cpuValues.length ? Math.min(...cpuValues).toFixed(1) : '0';
+      const cpuMax = cpuValues.length ? Math.max(...cpuValues).toFixed(1) : '0';
+      console.debug(`[awsAdapter] Transformed ${metrics.length} metrics for ${resourceId} (cpu range: ${cpuMin}%–${cpuMax}%)`);
 
       if (since) {
         const sinceMs = new Date(since).getTime();
@@ -127,12 +162,47 @@ export const awsAdapter: CloudAdapter = {
       }
       return metrics;
     } catch (err) {
-      console.error('[awsAdapter] CloudWatch error, falling back to mock:', err);
+      const label = classifyAwsError(err);
+      if (isPermissionError(err)) {
+        console.error(`[awsAdapter] ${label}: insufficient permissions for CloudWatch on ${instanceId} — falling back to mock`);
+      } else {
+        console.error(`[awsAdapter] ${label}: CloudWatch fetch failed for ${instanceId} — falling back to mock:`, (err as Error).message);
+      }
       return mockAdapter.getMetrics(resourceId, resource, since);
     }
   },
 
   async getCost(_resourceId: string): Promise<number> {
     return 0;
+  },
+
+  async stopResource(resourceId: string): Promise<void> {
+    const instanceId = getInstanceId(resourceId);
+    if (!instanceId) return;
+    try {
+      await withRetry(() => ec2.send(new StopInstancesCommand({ InstanceIds: [instanceId] })));
+      console.debug(`[awsAdapter] EC2 StopInstances sent for ${instanceId}, waiting for confirmation…`);
+      await waitForInstanceState(instanceId, 'stopped');
+      console.debug(`[awsAdapter] EC2 instance ${instanceId} confirmed stopped`);
+    } catch (err) {
+      const label = classifyAwsError(err);
+      console.error(`[awsAdapter] ${label}: StopInstances failed for ${instanceId}:`, (err as Error).message);
+      throw err;
+    }
+  },
+
+  async startResource(resourceId: string): Promise<void> {
+    const instanceId = getInstanceId(resourceId);
+    if (!instanceId) return;
+    try {
+      await withRetry(() => ec2.send(new StartInstancesCommand({ InstanceIds: [instanceId] })));
+      console.debug(`[awsAdapter] EC2 StartInstances sent for ${instanceId}, waiting for confirmation…`);
+      await waitForInstanceState(instanceId, 'running');
+      console.debug(`[awsAdapter] EC2 instance ${instanceId} confirmed running`);
+    } catch (err) {
+      const label = classifyAwsError(err);
+      console.error(`[awsAdapter] ${label}: StartInstances failed for ${instanceId}:`, (err as Error).message);
+      throw err;
+    }
   },
 };

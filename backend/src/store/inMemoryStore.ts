@@ -11,14 +11,28 @@ import { ResourceDocument } from '../db/ResourceModel';
 // ── Runtime state (intentionally resets on server restart) ─────────────────
 const runtime = {
   autoMode: false,
+  liveMode: true,                           // true = real AWS actions allowed
   loggedAnomalies: new Set<string>(),
   autoStopped: new Set<string>(),
   restartedAt: new Map<string, string>(),
+  lastActionAt: new Map<string, number>(),  // resourceId → timestamp of last stop/restart
 };
 
 // ── AutoMode ───────────────────────────────────────────────────────────────
 export function getAutoMode(): boolean { return runtime.autoMode; }
 export function setAutoMode(enabled: boolean): void { runtime.autoMode = enabled; }
+
+// ── LiveMode (gates real AWS actions) ──────────────────────────────────────
+export function getLiveMode(): boolean { return runtime.liveMode; }
+export function setLiveMode(enabled: boolean): void { runtime.liveMode = enabled; }
+
+// ── Cooldown tracking ──────────────────────────────────────────────────────
+export function getLastActionAt(resourceId: string): number | undefined {
+  return runtime.lastActionAt.get(resourceId);
+}
+export function setLastActionAt(resourceId: string): void {
+  runtime.lastActionAt.set(resourceId, Date.now());
+}
 
 // ── Anomaly dedup ──────────────────────────────────────────────────────────
 export function hasAnomalyBeenLogged(resourceId: string): boolean {

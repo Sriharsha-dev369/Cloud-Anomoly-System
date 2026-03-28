@@ -10,6 +10,7 @@ import ModeToggle from './components/ModeToggle'
 import DashboardView from './components/DashboardView'
 import LogsTimeline from './components/LogsTimeline'
 import LoginForm from './components/LoginForm'
+import ConfirmDialog from './components/ConfirmDialog'
 import { Anomaly, ImpactSummary, Log, Metric, Resource } from './types'
 
 function qs(resourceId: string, source: 'mock' | 'aws') {
@@ -31,6 +32,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string>('')
   const [activeMode, setActiveMode] = useState<'simulation' | 'aws'>('simulation')
   const [autoMode, setAutoMode] = useState(false)
+  const [liveMode, setLiveMode] = useState(false)
+  const [confirmingStop, setConfirmingStop] = useState(false)
 
   // Dashboard state
   const [impact, setImpact] = useState<ImpactSummary | null>(null)
@@ -145,6 +148,8 @@ export default function App() {
       if (list.length > 0) setSelectedId(list[0].id)
     }).catch(console.error)
     fetch('/api/automode').then((r) => r.json()).then((d: { autoMode: boolean }) => setAutoMode(d.autoMode)).catch(console.error)
+    fetch('/api/safety/live-mode', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json()).then((d: { liveMode: boolean }) => setLiveMode(d.liveMode)).catch(console.error)
   }, [])
 
   // ── Dashboard polling ─────────────────────────────────────────────────
@@ -215,15 +220,21 @@ export default function App() {
 
   function handleStop() {
     if (!selectedId) return
+    setConfirmingStop(true)
+  }
+
+  function handleConfirmStop() {
+    setConfirmingStop(false)
+    if (!selectedId) return
     setStopping(true)
     setStopError(null)
     fetch('/api/action/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ resourceId: selectedId }),
+      body: JSON.stringify({ resourceId: selectedId, source: selectedSource }),
     })
       .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        if (!r.ok) return r.json().then((d: { error?: string }) => { throw new Error(d.error ?? `HTTP ${r.status}`) })
         return r.json()
       })
       .then((data: { resource: Resource }) => {
@@ -238,6 +249,22 @@ export default function App() {
       .finally(() => setStopping(false))
   }
 
+  function handleCancelStop() {
+    setConfirmingStop(false)
+  }
+
+  function handleLiveModeToggle() {
+    const next = !liveMode
+    fetch('/api/safety/live-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ enabled: next }),
+    })
+      .then((r) => r.json())
+      .then((d: { liveMode: boolean }) => setLiveMode(d.liveMode))
+      .catch(console.error)
+  }
+
   function handleRestart() {
     if (!selectedId) return
     setRestarting(true)
@@ -245,7 +272,7 @@ export default function App() {
     fetch('/api/action/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ resourceId: selectedId }),
+      body: JSON.stringify({ resourceId: selectedId, source: selectedSource }),
     })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -288,7 +315,21 @@ export default function App() {
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
-          <ModeToggle activeMode={activeMode} onChange={handleModeChange} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <ModeToggle activeMode={activeMode} onChange={handleModeChange} />
+            {activeMode === 'aws' && (
+              <button
+                onClick={handleLiveModeToggle}
+                style={{
+                  padding: '6px 14px', borderRadius: 6, border: `1px solid ${liveMode ? '#dc3545' : '#adb5bd'}`,
+                  background: liveMode ? '#fff5f5' : '#f8f9fa', cursor: 'pointer', fontSize: 13,
+                  color: liveMode ? '#dc3545' : '#6c757d', fontWeight: 600,
+                }}
+              >
+                {liveMode ? 'Live Mode: ON' : 'Live Mode: OFF'}
+              </button>
+            )}
+          </div>
           <AutoModeToggle autoMode={autoMode} onChange={handleAutoModeChange} />
         </div>
         <DashboardView impact={impact} anomalyMap={anomalyMap} onSelect={handleSelectResource} />
@@ -317,8 +358,20 @@ export default function App() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <ModeToggle activeMode={activeMode} onChange={handleModeChange} />
+          {activeMode === 'aws' && (
+            <button
+              onClick={handleLiveModeToggle}
+              style={{
+                padding: '6px 14px', borderRadius: 6, border: `1px solid ${liveMode ? '#dc3545' : '#adb5bd'}`,
+                background: liveMode ? '#fff5f5' : '#f8f9fa', cursor: 'pointer', fontSize: 13,
+                color: liveMode ? '#dc3545' : '#6c757d', fontWeight: 600,
+              }}
+            >
+              {liveMode ? 'Live Mode: ON' : 'Live Mode: OFF'}
+            </button>
+          )}
           <ResourceSelector
             resources={resources}
             selectedId={selectedId}
@@ -348,6 +401,16 @@ export default function App() {
       <div style={{ marginTop: 32, borderTop: '1px solid #dee2e6', paddingTop: 20 }}>
         <LogsTimeline logs={logs} />
       </div>
+
+      {confirmingStop && selectedResource && (
+        <ConfirmDialog
+          resource={selectedResource}
+          liveMode={liveMode}
+          isAws={activeMode === 'aws'}
+          onConfirm={handleConfirmStop}
+          onCancel={handleCancelStop}
+        />
+      )}
     </div>
   )
 }

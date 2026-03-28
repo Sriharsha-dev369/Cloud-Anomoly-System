@@ -9,6 +9,7 @@ import automodeRouter from './automode';
 import logsRouter from './logs';
 import authRouter from './auth';
 import impactRouter from './impact';
+import safetyRouter from './safety';
 import { getMode } from '../controllers/modeController';
 
 const router = Router();
@@ -24,5 +25,6 @@ router.use('/resources', resourcesRouter);
 router.use('/automode', automodeRouter);
 router.use('/logs', logsRouter);
 router.use('/impact', impactRouter);
+router.use('/safety', safetyRouter);
 
 export default router;

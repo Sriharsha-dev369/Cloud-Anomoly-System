@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { generateMetrics } from '../services/metricsService';
 import { detectAnomalies } from '../services/anomalyService';
-import { getAutoMode, getResource, stopResource, addLog, hasAnomalyBeenLogged, markAnomalyLogged, hasAutoStopped, markAutoStopped } from '../store/inMemoryStore';
+import { getResource, addLog, hasAnomalyBeenLogged, markAnomalyLogged } from '../store/inMemoryStore';
 
 export async function getAnomalies(req: Request, res: Response): Promise<void> {
   const resourceId = req.query.resourceId as string | undefined;
@@ -26,16 +26,11 @@ export async function getAnomalies(req: Request, res: Response): Promise<void> {
     if (!hasAnomalyBeenLogged(resource.id)) {
       const reason = anomalies[0].type;
       const reasonLabel = reason === 'spike_usage' ? 'CPU spike detected' : 'low CPU usage';
-      await addLog({ resourceId: resource.id, type: 'anomaly', message: `Anomaly detected on ${resource.name}: ${reasonLabel}` });
+      await addLog({ resourceId: resource.id, type: 'anomaly', message: `Anomaly detected on ${resource.name}: ${reasonLabel} (confidence: ${Math.round(anomalies[0].confidence * 100)}%)` });
       markAnomalyLogged(resource.id);
     }
 
-    if (getAutoMode() && !hasAutoStopped(resource.id)) {
-      markAutoStopped(resource.id);
-      await stopResource(resource.id);
-      const reasonLabel = anomalies[0].type === 'spike_usage' ? 'CPU spike detected' : 'low CPU usage';
-      await addLog({ resourceId: resource.id, type: 'action', message: `${resource.name} stopped automatically — ${reasonLabel}` });
-    }
+    // Auto-stop logic removed — handled by syncEngine.runDetectionCycle()
   }
 
   res.json(anomalies);

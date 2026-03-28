@@ -3,6 +3,7 @@ import { DetectedAnomaly, Detector } from './types';
 
 const LOW_CPU_THRESHOLD = 5;
 const WINDOW = 10;
+const MIN_CONFIDENCE = 0.6; // guard against borderline noise-driven detections
 
 export const lowUsageDetector: Detector = {
   detect(metrics: Metric[]): DetectedAnomaly[] {
@@ -18,6 +19,7 @@ export const lowUsageDetector: Detector = {
     const avgCpu = window.reduce((sum, m) => sum + m.cpu, 0) / WINDOW;
     const deviationScore = (LOW_CPU_THRESHOLD - avgCpu) / LOW_CPU_THRESHOLD;
     const confidence = parseFloat(Math.min(1, Math.max(0, 0.5 + 0.5 * deviationScore)).toFixed(2));
+    if (confidence < MIN_CONFIDENCE) return [];
 
     return [{
       resourceId: window[0].resourceId,
