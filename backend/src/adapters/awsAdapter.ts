@@ -22,15 +22,16 @@ function buildInstanceMap(): Record<string, string> {
 const instanceMap = buildInstanceMap();
 
 function getInstanceId(resourceId: string): string | null {
-  return instanceMap[resourceId] ?? null;
+  // Explicit mapping takes priority; fall back to treating the ID directly as an instance ID
+  return instanceMap[resourceId] ?? (resourceId.startsWith('i-') ? resourceId : null);
 }
 
 export const awsAdapter: CloudAdapter = {
-  async getMetrics(resourceId: string, resource: Resource): Promise<Metric[]> {
+  async getMetrics(resourceId: string, resource: Resource, since?: string): Promise<Metric[]> {
     const instanceId = getInstanceId(resourceId);
 
     if (!instanceId) {
-      return mockAdapter.getMetrics(resourceId, resource);
+      return mockAdapter.getMetrics(resourceId, resource, since);
     }
 
     try {
@@ -77,10 +78,14 @@ export const awsAdapter: CloudAdapter = {
         metrics.push({ resourceId: resource.id, timestamp, cpu, cost });
       }
 
+      if (since) {
+        const sinceMs = new Date(since).getTime();
+        return metrics.filter((m) => new Date(m.timestamp).getTime() > sinceMs);
+      }
       return metrics;
     } catch (err) {
       console.error('[awsAdapter] CloudWatch error, falling back to mock:', err);
-      return mockAdapter.getMetrics(resourceId, resource);
+      return mockAdapter.getMetrics(resourceId, resource, since);
     }
   },
 

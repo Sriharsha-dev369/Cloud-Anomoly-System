@@ -49,6 +49,8 @@ function toResource(doc: ResourceDocument): Resource {
     status: doc.status,
     costPerHour: doc.costPerHour,
     stoppedAt: doc.stoppedAt,
+    startedAt: doc.startedAt,
+    instanceType: doc.instanceType,
   };
 }
 
@@ -84,8 +86,8 @@ export async function addLog(entry: Omit<Log, 'timestamp'>): Promise<void> {
   await createLog({ timestamp: new Date().toISOString(), ...entry });
 }
 
-export async function getLogs(resourceId?: string): Promise<Log[]> {
-  const docs = await findLogs(resourceId);
+export async function getLogs(resourceId?: string, since?: string): Promise<Log[]> {
+  const docs = await findLogs(resourceId, since);
   return docs.map((d) => ({
     timestamp: d.timestamp,
     resourceId: d.resourceId,

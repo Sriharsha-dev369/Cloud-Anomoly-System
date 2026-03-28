@@ -31,8 +31,9 @@ describe('detectAnomalies', () => {
     const cost = cpu.map((_, i) => i * 0.01); // steadily increasing
     const result = detectAnomalies(makeMetrics(cpu, cost));
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('low_usage');
-    expect(result[0].resourceId).toBe('res-001');
+    expect(result[0]).toMatchObject({ type: 'low_usage', resourceId: 'res-001' });
+    expect(result[0].confidence).toBeGreaterThan(0);
+    expect(result[0].confidence).toBeLessThanOrEqual(1);
   });
 
   it('does not flag low_usage when cost is flat (resource already stopped)', () => {
@@ -51,13 +52,22 @@ describe('detectAnomalies', () => {
     const cpu = [...Array(50).fill(70), ...Array(10).fill(95)];
     const result = detectAnomalies(makeMetrics(cpu));
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('spike_usage');
-    expect(result[0].resourceId).toBe('res-001');
+    expect(result[0]).toMatchObject({ type: 'spike_usage', resourceId: 'res-001' });
+    expect(result[0].confidence).toBeGreaterThan(0);
+    expect(result[0].confidence).toBeLessThanOrEqual(1);
   });
 
   it('does not flag spike_usage when only 9 of last 10 are above 90%', () => {
     const cpu = [...Array(50).fill(70), 70, ...Array(9).fill(95)]; // 9 high, not 10
     expect(detectAnomalies(makeMetrics(cpu))).toEqual([]);
+  });
+
+  it('detects anomaly with exactly 10 data points (minimum window)', () => {
+    const cpu = Array(10).fill(2);
+    const cost = cpu.map((_, i) => i * 0.01);
+    const result = detectAnomalies(makeMetrics(cpu, cost));
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('low_usage');
   });
 
   it('checks low_usage before spike_usage', () => {

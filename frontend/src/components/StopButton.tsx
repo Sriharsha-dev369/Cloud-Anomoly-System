@@ -25,15 +25,24 @@ export default function StopButton({ status, hasAnomaly, stopping, restarting, o
     );
   }
 
-  if (!hasAnomaly) return null;
-
+  // Running — stop is always available; style differs based on anomaly severity
+  const isUrgent = hasAnomaly;
   return (
     <button
       onClick={onStop}
       disabled={stopping}
-      style={{ padding: '10px 24px', background: stopping ? '#adb5bd' : '#dc3545', color: '#fff', border: 'none', borderRadius: 6, cursor: stopping ? 'not-allowed' : 'pointer', fontSize: 16 }}
+      title={isUrgent ? 'Stop anomalous instance' : 'Stop this instance manually'}
+      style={{
+        padding: '10px 24px',
+        background: stopping ? '#adb5bd' : isUrgent ? '#dc3545' : '#6c757d',
+        color: '#fff',
+        border: 'none',
+        borderRadius: 6,
+        cursor: stopping ? 'not-allowed' : 'pointer',
+        fontSize: 14,
+      }}
     >
-      {stopping ? 'Stopping...' : 'Stop Instance'}
+      {stopping ? 'Stopping...' : isUrgent ? 'Stop Instance' : 'Stop Instance'}
     </button>
   );
 }

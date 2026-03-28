@@ -8,9 +8,12 @@ import resourcesRouter from './resources';
 import automodeRouter from './automode';
 import logsRouter from './logs';
 import authRouter from './auth';
+import impactRouter from './impact';
+import { getMode } from '../controllers/modeController';
 
 const router = Router();
 
+router.get('/mode', getMode);
 router.use('/health', healthRouter);
 router.use('/auth', authRouter);
 router.use('/metrics', metricsRouter);
@@ -20,5 +23,6 @@ router.use('/savings', savingsRouter);
 router.use('/resources', resourcesRouter);
 router.use('/automode', automodeRouter);
 router.use('/logs', logsRouter);
+router.use('/impact', impactRouter);
 
 export default router;

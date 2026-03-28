@@ -14,7 +14,7 @@ const defaultPattern = { normalMin: 65, normalMax: 80, dropAt: 20, dropMax: 2 };
 const RECOVERY_MINUTES = 15;
 
 export const mockAdapter: CloudAdapter = {
-  async getMetrics(resourceId: string, resource: Resource): Promise<Metric[]> {
+  async getMetrics(resourceId: string, resource: Resource, since?: string): Promise<Metric[]> {
     const pattern = patterns[resource.id] ?? defaultPattern;
     const metrics: Metric[] = [];
     const now = Date.now();
@@ -58,6 +58,10 @@ export const mockAdapter: CloudAdapter = {
       metrics.push({ resourceId: resource.id, timestamp, cpu: parseFloat(cpu.toFixed(1)), cost });
     }
 
+    if (since) {
+      const sinceMs = new Date(since).getTime();
+      return metrics.filter((m) => new Date(m.timestamp).getTime() > sinceMs);
+    }
     return metrics;
   },
 

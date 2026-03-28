@@ -9,7 +9,13 @@ export async function getAnomalies(req: Request, res: Response): Promise<void> {
   const metrics = await generateMetrics(resourceId, source);
   const anomalies = detectAnomalies(metrics);
 
-  const resource = await getResource(resourceId);
+  let resource;
+  try {
+    resource = await getResource(resourceId);
+  } catch {
+    res.json([]);
+    return;
+  }
 
   if (resource.status === 'stopped') {
     res.json([]);
@@ -27,7 +33,8 @@ export async function getAnomalies(req: Request, res: Response): Promise<void> {
     if (getAutoMode() && !hasAutoStopped(resource.id)) {
       markAutoStopped(resource.id);
       await stopResource(resource.id);
-      await addLog({ resourceId: resource.id, type: 'action', message: `${resource.name} stopped automatically by system` });
+      const reasonLabel = anomalies[0].type === 'spike_usage' ? 'CPU spike detected' : 'low CPU usage';
+      await addLog({ resourceId: resource.id, type: 'action', message: `${resource.name} stopped automatically — ${reasonLabel}` });
     }
   }
 

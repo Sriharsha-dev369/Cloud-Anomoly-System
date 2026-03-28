@@ -1,8 +1,11 @@
 import { getResource } from '../store/inMemoryStore';
+import { calculateSavings as calcSavings } from './costEngine';
 
 export async function calculateSavings(resourceId?: string): Promise<number> {
-  const resource = await getResource(resourceId);
-  if (resource.status !== 'stopped' || !resource.stoppedAt) return 0;
-  const hoursStopped = (Date.now() - new Date(resource.stoppedAt).getTime()) / 3_600_000;
-  return parseFloat((resource.costPerHour * hoursStopped).toFixed(4));
+  try {
+    const resource = await getResource(resourceId);
+    return calcSavings(resource);
+  } catch {
+    return 0;
+  }
 }

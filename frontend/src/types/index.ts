@@ -32,3 +32,19 @@ export interface Log {
   type: 'anomaly' | 'action';
   message: string;
 }
+
+export interface ImpactResource {
+  id: string;
+  name: string;
+  instanceType: string;
+  costPerHour: number;
+  runningCost: number;
+  savings: number;
+  status: string;
+}
+
+export interface ImpactSummary {
+  totalRunningCost: number;
+  totalSavings: number;
+  perResource: ImpactResource[];
+}

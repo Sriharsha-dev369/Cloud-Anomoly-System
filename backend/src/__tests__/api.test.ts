@@ -2,7 +2,7 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import app from '../app';
 import { generateMetrics } from '../services/metricsService';
-import { getResource, stopResource, addLog } from '../store/inMemoryStore';
+import { getResource, stopResource, restartResource, addLog } from '../store/inMemoryStore';
 import { calculateSavings } from '../services/savingsService';
 
 jest.mock('../services/metricsService');
@@ -12,6 +12,7 @@ jest.mock('../services/savingsService');
 const mockGenerateMetrics = jest.mocked(generateMetrics);
 const mockGetResource = jest.mocked(getResource);
 const mockStopResource = jest.mocked(stopResource);
+const mockRestartResource = jest.mocked(restartResource);
 const mockAddLog = jest.mocked(addLog);
 const mockCalculateSavings = jest.mocked(calculateSavings);
 
@@ -83,7 +84,77 @@ describe('POST /action/stop', () => {
       .send({ resourceId: 'res-001' });
 
     expect(res.status).toBe(409);
-    expect(res.body.error).toBe('Resource is already stopped');
+    expect(res.body.error).toBe('web-server-01 is already stopped');
+  });
+
+  it('returns 404 when resource is not found', async () => {
+    mockGetResource.mockRejectedValue(new Error('Resource unknown not found'));
+
+    const res = await request(app)
+      .post('/action/stop')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ resourceId: 'unknown' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Resource not found');
+  });
+});
+
+describe('POST /action/restart', () => {
+  it('returns 401 without a token', async () => {
+    const res = await request(app)
+      .post('/action/restart')
+      .send({ resourceId: 'res-001' });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 with an invalid token', async () => {
+    const res = await request(app)
+      .post('/action/restart')
+      .set('Authorization', 'Bearer not-a-real-token')
+      .send({ resourceId: 'res-001' });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('restarts a stopped resource', async () => {
+    mockGetResource.mockResolvedValue(stoppedResource);
+    mockRestartResource.mockResolvedValue(runningResource);
+    mockAddLog.mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .post('/action/restart')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ resourceId: 'res-001' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.resource.status).toBe('running');
+    expect(res.body.action.type).toBe('restart');
+  });
+
+  it('returns 409 when resource is already running', async () => {
+    mockGetResource.mockResolvedValue(runningResource);
+
+    const res = await request(app)
+      .post('/action/restart')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ resourceId: 'res-001' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('web-server-01 is already running');
+  });
+
+  it('returns 404 when resource is not found', async () => {
+    mockGetResource.mockRejectedValue(new Error('Resource unknown not found'));
+
+    const res = await request(app)
+      .post('/action/restart')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ resourceId: 'unknown' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Resource not found');
   });
 });
 
