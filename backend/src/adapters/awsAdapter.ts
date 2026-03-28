@@ -26,6 +26,43 @@ function getInstanceId(resourceId: string): string | null {
   return instanceMap[resourceId] ?? (resourceId.startsWith('i-') ? resourceId : null);
 }
 
+// Fills null slots with linear interpolation between known values.
+// Leading nulls → forward-filled with first known value.
+// Trailing nulls → backward-filled with last known value.
+// All-null → returns array of zeros (adapter falls back to mock anyway).
+function interpolateGaps(slots: (number | null)[]): number[] {
+  const result = [...slots];
+
+  const firstKnown = result.find((v) => v !== null) ?? null;
+  if (firstKnown === null) return new Array(slots.length).fill(0);
+
+  for (let i = 0; i < result.length; i++) {
+    if (result[i] !== null) break;
+    result[i] = firstKnown;
+  }
+
+  let left = 0;
+  while (left < result.length) {
+    if (result[left] === null) { left++; continue; }
+    let right = left + 1;
+    while (right < result.length && result[right] === null) right++;
+    if (right < result.length) {
+      const span = right - left;
+      const startVal = result[left]!;
+      const endVal = result[right]!;
+      for (let k = 1; k < span; k++) {
+        result[left + k] = startVal + (endVal - startVal) * (k / span);
+      }
+    } else {
+      const lastKnown = result[left]!;
+      for (let k = left + 1; k < result.length; k++) result[k] = lastKnown;
+    }
+    left = right;
+  }
+
+  return result.map((v) => parseFloat((v ?? 0).toFixed(1)));
+}
+
 export const awsAdapter: CloudAdapter = {
   async getMetrics(resourceId: string, resource: Resource, since?: string): Promise<Metric[]> {
     const instanceId = getInstanceId(resourceId);
@@ -59,22 +96,28 @@ export const awsAdapter: CloudAdapter = {
       // Sort ascending by timestamp
       datapoints.sort((a, b) => (a.Timestamp?.getTime() ?? 0) - (b.Timestamp?.getTime() ?? 0));
 
-      // Build a full 60-point window, filling gaps with 0
-      const metrics: Metric[] = [];
       const nowMs = now.getTime();
 
+      // Collect into a slot array (null = no CloudWatch datapoint for this minute)
+      const slots: (number | null)[] = new Array(60).fill(null);
       for (let i = 59; i >= 0; i--) {
-        const pointMs = nowMs - i * 60 * 1000;
-        const timestamp = new Date(pointMs).toISOString();
-
-        // Find a CloudWatch datapoint within ±30s of this slot
+        const pointMs = nowMs - i * 60_000;
         const match = datapoints.find(
           (dp) => dp.Timestamp && Math.abs(dp.Timestamp.getTime() - pointMs) < 30_000
         );
+        if (match?.Average !== undefined) {
+          slots[59 - i] = parseFloat(match.Average.toFixed(1));
+        }
+      }
 
-        const cpu = match?.Average !== undefined ? parseFloat(match.Average.toFixed(1)) : 0;
+      const smoothedCpu = interpolateGaps(slots);
+
+      const metrics: Metric[] = [];
+      for (let i = 59; i >= 0; i--) {
+        const pointMs = nowMs - i * 60_000;
+        const timestamp = new Date(pointMs).toISOString();
+        const cpu = smoothedCpu[59 - i];
         const cost = parseFloat((resource.costPerHour * ((60 - i) / 60)).toFixed(4));
-
         metrics.push({ resourceId: resource.id, timestamp, cpu, cost });
       }
 

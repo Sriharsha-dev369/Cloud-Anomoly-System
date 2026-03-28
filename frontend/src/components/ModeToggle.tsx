@@ -1,12 +1,9 @@
 interface Props {
   activeMode: 'simulation' | 'aws';
-  serverMode: 'aws' | 'mock';
   onChange: (mode: 'simulation' | 'aws') => void;
 }
 
-export default function ModeToggle({ activeMode, serverMode, onChange }: Props) {
-  const awsAvailable = serverMode === 'aws';
-
+export default function ModeToggle({ activeMode, onChange }: Props) {
   const baseBtn: React.CSSProperties = {
     padding: '6px 18px',
     border: '1px solid #0d6efd',
@@ -18,7 +15,6 @@ export default function ModeToggle({ activeMode, serverMode, onChange }: Props) 
 
   const activeStyle: React.CSSProperties = { background: '#0d6efd', color: '#fff' };
   const inactiveStyle: React.CSSProperties = { background: '#fff', color: '#0d6efd' };
-  const disabledStyle: React.CSSProperties = { opacity: 0.45, cursor: 'not-allowed' };
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -36,24 +32,16 @@ export default function ModeToggle({ activeMode, serverMode, onChange }: Props) 
           Simulation
         </button>
         <button
-          onClick={() => awsAvailable && onChange('aws')}
-          disabled={!awsAvailable}
-          title={awsAvailable ? undefined : 'Server not in AWS mode'}
+          onClick={() => onChange('aws')}
           style={{
             ...baseBtn,
             borderRadius: '0 20px 20px 0',
             ...(activeMode === 'aws' ? activeStyle : inactiveStyle),
-            ...(awsAvailable ? {} : disabledStyle),
           }}
         >
           AWS
         </button>
       </div>
-      {!awsAvailable && (
-        <span style={{ fontSize: 12, color: '#adb5bd' }}>
-          Set <code>DATA_SOURCE=aws</code> to enable
-        </span>
-      )}
     </div>
   );
 }

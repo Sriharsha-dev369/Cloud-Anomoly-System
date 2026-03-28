@@ -1,278 +1,369 @@
-Cloud Cost Optimizer V2.5 – Agent Instructions (Winning Foundation)
-PROJECT GOAL
+# Cloud Cost Optimizer AWS Mode – Agent Instructions
 
-Transform system from MVP → structured, realistic, extensible product
+## PROJECT GOAL
 
-Focus on:
+Enable **real AWS integration** while preserving the exact behavior of simulation mode.
 
-Reliability + Modularity + Realistic flow
+Demonstrate:
 
-NOT intelligence yet (that comes after this phase)
+Real Metrics → Detection → Safe Action → Real Savings → Logs → UI
 
-CORE FLOW (REFINED)
+System must behave **identically in both modes** (mock vs AWS)
 
-Metrics → Detection Pipeline → Decision → Action → Cost Engine → Savings → Logs → UI
+---
 
-System must clearly show:
+## CORE FLOW (AWS MODE)
 
-Data ingestion (mock or adapter)
-Modular anomaly detection
-Action execution
-Cost impact calculation
-Persistent tracking
-Clear UI feedback
+CloudWatch → Normalize → Detection Pipeline → Decision → Action → Cost Engine → Logs → UI
 
-If all 6 work → foundation complete
+The system must clearly show:
 
-HARD RULES (STRICT)
-Do NOT introduce ML models
-Do NOT overengineer infra
-Do NOT add unnecessary features
-Do NOT tightly couple modules
-Do NOT break MVP logic
-Always extend, never rewrite
-CORE ARCHITECTURE (NEW)
-Frontend (Dashboard + Views)
-↓
-Backend API Layer
-↓
-Detection Pipeline (modular)
-↓
-Decision + Action Layer
-↓
+1. Real AWS metrics ingestion
+2. Normalized data (same format as mock)
+3. Anomaly detection working unchanged
+4. Safe execution of actions (stop/start)
+5. Realistic cost estimation
+6. Logs reflecting real events
+
+If all 6 work → AWS mode complete
+
+---
+
+## HARD RULES (STRICT)
+
+* Do NOT break simulation mode
+* Do NOT tightly couple AWS logic with core system
+* Do NOT expose raw AWS responses to UI
+* Do NOT assume AWS data is always available
+* Always normalize AWS data to internal format
+* Always provide fallback (mock mode)
+
+---
+
+## CORE ARCHITECTURE
+
+```text id="aws-arch-1"
+Frontend (Dashboard)
+        ↓
+Backend API
+        ↓
+Cloud Adapter Layer
+   ├── MockAdapter
+   └── AWSAdapter
+        ↓
+Detection Pipeline
+        ↓
+Action Layer
+        ↓
 Cost Engine
-↓
+        ↓
 Data Layer (DB)
-↓
-Cloud Adapter (mock / optional AWS)
-KEY SYSTEM COMPONENTS
+```
 
-1. Cloud Adapter Layer
+---
 
-Purpose:
+## CLOUD ADAPTER DESIGN (CRITICAL)
 
-Abstract data source
+### Interface (COMMON)
 
-Modes:
+```ts id="aws-iface-1"
+getMetrics(resourceId): Metric[]
+stopResource(resourceId): void
+startResource(resourceId): void
+getCost(resourceId): number
+```
 
-mock (default)
-optional AWS CloudWatch (read-only)
+---
 
-Rule:
+### MockAdapter
 
-Same interface for both
+* Uses static / simulated data
+* Already implemented
+* Must remain unchanged
 
-getMetrics(resourceId): Metric[] 2. Detection Pipeline (IMPORTANT)
+---
 
-Move from single rule → modular detectors
-
-Structure:
-
-detectors = [
-lowUsageDetector,
-spikeDetector
-]
-
-Each detector:
-
-detect(metrics) → anomaly | null
-
-👉 Easy to extend later
-
-3. Action Layer
-
-Handles:
-
-stop resource
-future actions (resize etc.)
-
-Rules:
-
-Must be safe
-Must update DB
-Must log events 4. Cost Engine (NEW)
-
-Separate logic:
-
-calculateSavings(resource, duration)
+### AWSAdapter (NEW)
 
 Responsibilities:
 
-Compute savings
-Aggregate totals
-Support future prediction
-
-👉 DO NOT mix with business logic
-
-5. Data Layer (PERSISTENT)
-
-Use:
-
-MongoDB / SQLite / simple DB
-
-Store:
-
-resources
-metrics
-anomalies
-actions
-logs
+* Fetch CPU metrics from CloudWatch
+* Control EC2 instances (stop/start)
+* Provide cost estimation
 
 Rule:
 
-Keep queries simple
+Return **same structure as MockAdapter**
 
-DATA MODELS (UPDATED)
-Resource
-id
-name
-status
-costPerHour
-Metric
-resourceId
-timestamp
-cpu
-cost
-Anomaly
-id
-resourceId
-type ("low_usage" | "spike_usage")
-detectedAt
-Action
-id
-resourceId
-type ("stop")
-status
-triggeredBy
-Log
-id
-timestamp
-resourceId
-type
-message
-API CONTRACT (UPDATED)
-GET /resources
+---
 
-Return all resources
+## AWS INTEGRATION DETAILS
 
-GET /metrics?resourceId=
+### 1. Metrics (CloudWatch)
 
-Return metrics per resource
+Source:
 
-GET /anomalies?resourceId=
+* AWS CloudWatch
 
-Return anomalies
+Data:
 
-POST /action/stop
+* CPUUtilization
 
-Trigger stop action
+Steps:
 
-GET /savings
+1. Fetch metrics
+2. Convert to internal format:
 
-Return aggregated savings
+```ts id="aws-metric-format"
+Metric = {
+  resourceId,
+  timestamp,
+  cpu,
+  cost
+}
+```
 
-GET /logs
+---
 
-Return system logs
+### 2. Resource Control (EC2)
 
-BUSINESS LOGIC RULES
-Detection
-Low usage:
-CPU < 20% for duration
-Spike:
-Cost > 2× average
-Action
-Stop resource
-Update status
-Log event
-Cost Engine
-savings = costPerHour × stoppedDuration
-Must accumulate globally
-Logging (MANDATORY)
+Actions:
 
-Log:
+* Stop instance
+* Start instance
 
-anomaly detection
-action trigger
-action completion
-UI REQUIREMENTS
-Dashboard
-Multi-resource list
-CPU + cost charts
-Anomaly indicators
-Savings summary
-Detail View (NEW)
+Rules:
 
-Per resource:
+* Always confirm before stopping
+* Apply cooldown (prevent repeated actions)
+* Update system DB after action
 
-metrics
-anomalies
-actions
-logs
-UX Signals
-loading states
-empty states
-error handling
-EXPECTED PROJECT STRUCTURE
+---
+
+### 3. Cost Estimation
+
+Options:
+
+* Simple approximation (preferred)
+* OR AWS pricing API (optional)
+
+Rule:
+
+Keep it simple:
+
+```ts id="aws-cost"
+cost = hourlyRate × usageDuration
+```
+
+---
+
+## NORMALIZATION LAYER (MANDATORY)
+
+AWS data must be transformed into:
+
+* Metric
+* Resource
+* Action
+
+Rule:
+
+Core system should **never know data source**
+
+---
+
+## BUSINESS LOGIC RULES
+
+### Detection
+
+* Must work unchanged from V2
+* Same detectors used
+
+---
+
+### Action
+
+* Trigger via adapter
+* Update DB
+* Log event
+
+---
+
+### Cost Engine
+
+* Use same logic as simulation
+* No AWS-specific logic inside
+
+---
+
+### Logs
+
+Must include:
+
+* "AWS_METRIC_FETCHED"
+* "AWS_ACTION_TRIGGERED"
+* "AWS_ACTION_COMPLETED"
+
+---
+
+## SAFETY SYSTEM (CRITICAL)
+
+### Mode Control
+
+* Default → simulation
+* AWS mode must be explicitly enabled
+
+---
+
+### Action Safety
+
+Before stopping:
+
+* Require confirmation
+* Apply cooldown (e.g., 5–10 mins)
+
+---
+
+### Failure Handling
+
+If AWS fails:
+
+* Fallback to mock mode OR
+* Show safe error state
+
+---
+
+## DATA STORAGE
+
+Store:
+
+* normalized metrics
+* anomalies
+* actions
+* logs
+
+Do NOT store raw AWS responses
+
+---
+
+## API CONTRACT (UNCHANGED)
+
+Same APIs as V2:
+
+* GET /resources
+* GET /metrics
+* GET /anomalies
+* POST /action/stop
+* GET /savings
+* GET /logs
+
+Rule:
+
+API must behave same in both modes
+
+---
+
+## UI REQUIREMENTS
+
+### Mode Indicator (NEW)
+
+Show:
+
+* "Simulation Mode"
+* "AWS Live Mode"
+
+---
+
+### Behavior
+
+UI must:
+
+* Show identical structure in both modes
+* Not expose AWS complexity
+* Clearly reflect real-time actions
+
+---
+
+### Safety UX
+
+* Confirmation dialog before stop
+* Loading states for AWS calls
+* Error messages if AWS fails
+
+---
+
+## EXPECTED PROJECT STRUCTURE
 
 backend/
 
-server.js
-routes/
-adapters/ ← NEW
-detectors/ ← NEW
-services/
-cost/ ← NEW
-modules/
-store/
+* server.js
+* routes/
+* adapters/
+
+  * MockAdapter.js
+  * AWSAdapter.js
+* detectors/
+* services/
+* cost/
+* modules/
+* store/
 
 frontend/
 
-App.jsx
-pages/
-Dashboard.jsx
-ResourceDetail.jsx
-components/
-IMPLEMENTATION STYLE
-Small, focused modules
-Clear separation of concerns
-Avoid deep nesting
-Prefer simple functions
-Keep files readable quickly
-SUCCESS CHECKLIST (MUST PASS)
-Multi-resource system works
-Detection pipeline is modular
-Data persists after restart
-Cost engine calculates correctly
-Logs are accurate and complete
-UI reflects real system state
-System feels structured and stable
-PRIORITY ORDER
-Multi-resource + DB
-Detection pipeline
-Cost engine separation
-Adapter layer
-UI (dashboard + detail view)
-Stability (loading, errors)
-WHAT COMES NEXT (Phase 3 – LIMITED)
+* App.jsx
+* pages/
+* components/
 
-After this:
+  * ModeToggle.jsx  ← NEW
+  * Dashboard.jsx
+  * ResourceDetail.jsx
 
-Add ONLY:
+---
 
-Predictive savings
-Recommendation system
+## IMPLEMENTATION STYLE
 
-DO NOT add more
+* Keep AWS logic isolated
+* Use adapter pattern strictly
+* Avoid SDK leakage into business logic
+* Keep functions small and testable
+* Prefer clarity over completeness
 
-FINAL NOTE
+---
 
-This phase builds:
+## SUCCESS CHECKLIST (MUST PASS)
 
-“A system that looks real”
+* AWS metrics fetched successfully
+* Data normalized correctly
+* Detection works on AWS data
+* Stop/start actions work safely
+* Cost calculated realistically
+* Logs reflect AWS operations
+* Simulation mode still works perfectly
+* UI behaves identically in both modes
 
-Next phase builds:
+---
 
-“A system that looks intelligent”
+## PRIORITY ORDER
 
-Don't mix both.
+1. AWSAdapter (metrics fetch)
+2. Normalization layer
+3. Detection on AWS data
+4. EC2 actions (stop/start)
+5. Cost estimation
+6. Logs integration
+7. UI mode toggle + safety
+
+---
+
+## FINAL NOTE
+
+This phase ensures:
+
+> “System works with real cloud data”
+
+Next phase adds:
+
+> “System becomes intelligent”
+
+Do not mix both.
+
+Real integration first → intelligence later.

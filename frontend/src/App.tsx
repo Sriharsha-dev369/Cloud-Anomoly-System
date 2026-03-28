@@ -30,7 +30,6 @@ export default function App() {
   const [resources, setResources] = useState<Resource[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [activeMode, setActiveMode] = useState<'simulation' | 'aws'>('simulation')
-  const [serverMode, setServerMode] = useState<'aws' | 'mock'>('mock')
   const [autoMode, setAutoMode] = useState(false)
 
   // Dashboard state
@@ -144,10 +143,6 @@ export default function App() {
     fetch('/api/resources').then((r) => r.json()).then((list: Resource[]) => {
       setResources(list)
       if (list.length > 0) setSelectedId(list[0].id)
-    }).catch(console.error)
-    fetch('/api/mode').then((r) => r.json()).then((d: { mode: 'aws' | 'mock' }) => {
-      setServerMode(d.mode)
-      if (d.mode === 'aws') setActiveMode('aws')
     }).catch(console.error)
     fetch('/api/automode').then((r) => r.json()).then((d: { autoMode: boolean }) => setAutoMode(d.autoMode)).catch(console.error)
   }, [])
@@ -293,7 +288,7 @@ export default function App() {
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
-          <ModeToggle activeMode={activeMode} serverMode={serverMode} onChange={handleModeChange} />
+          <ModeToggle activeMode={activeMode} onChange={handleModeChange} />
           <AutoModeToggle autoMode={autoMode} onChange={handleAutoModeChange} />
         </div>
         <DashboardView impact={impact} anomalyMap={anomalyMap} onSelect={handleSelectResource} />
@@ -323,7 +318,7 @@ export default function App() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <ModeToggle activeMode={activeMode} serverMode={serverMode} onChange={handleModeChange} />
+          <ModeToggle activeMode={activeMode} onChange={handleModeChange} />
           <ResourceSelector
             resources={resources}
             selectedId={selectedId}
