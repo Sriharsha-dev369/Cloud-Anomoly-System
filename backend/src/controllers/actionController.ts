@@ -4,13 +4,15 @@ import {
   stopResource,
   restartResource,
   addLog,
-  getResource,
+  getUserResource,
   getLiveMode,
   getLastActionAt,
   setLastActionAt,
 } from '../store/inMemoryStore';
-import { getAdapter } from '../adapters';
+import { getAdapterForUser } from '../adapters';
 import { isAwsMode } from '../utils/awsConfig';
+import { createAction } from '../repositories/actionRepository';
+import { createSavingsRecord, finalizeSavingsRecord } from '../repositories/savingsRepository';
 
 const AWS_COOLDOWN_MS = 5 * 60 * 1000;  // 5 minutes — real EC2 needs time
 const MOCK_COOLDOWN_MS = 30 * 1000;     // 30 seconds — simulation is instant
@@ -30,16 +32,17 @@ function cooldownRemaining(resourceId: string): number {
   return Math.max(0, COOLDOWN_MS - (Date.now() - last));
 }
 
-// Shared validation: resource lookup, status check, cooldown guard.
+// Shared validation: resource lookup (user-scoped), status check, cooldown guard.
 // Returns the resource if valid, or null after sending an error response.
 async function validateResourceForAction(
   resourceId: string | undefined,
   rejectedStatus: 'stopped' | 'running',
   res: Response,
+  userId: string,
 ): Promise<Resource | null> {
   let existing: Resource;
   try {
-    existing = await getResource(resourceId);
+    existing = await getUserResource(resourceId!, userId);
   } catch {
     res.status(404).json({ error: 'Resource not found' });
     return null;
@@ -60,12 +63,12 @@ async function validateResourceForAction(
   return existing;
 }
 
-// Shared live-mode gate + adapter action + logging.
+// Shared live-mode gate + per-user adapter action + logging.
 // Returns null on success, or an error string on failure.
 async function executeAdapterAction(
   existing: Resource,
   resourceId: string,
-  source: string | undefined,
+  userId: string,
   actionVerb: 'stop' | 'start',
   adapterMethod: 'stopResource' | 'startResource',
 ): Promise<string | null> {
@@ -79,9 +82,10 @@ async function executeAdapterAction(
     return null;
   }
 
+  const adapter = await getAdapterForUser(userId);
   try {
     await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_TRIGGERED — ${actionVerb} sent to ${existing.instanceType ?? existing.id}` });
-    await getAdapter(source)[adapterMethod](resourceId);
+    await adapter[adapterMethod](resourceId);
     const pastTense = actionVerb === 'stop' ? 'stopped' : 'started';
     await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_COMPLETED — ${existing.name} ${pastTense} on EC2` });
     return null;
@@ -94,13 +98,17 @@ async function executeAdapterAction(
 
 export async function postStop(req: Request, res: Response): Promise<void> {
   const resourceId = req.body?.resourceId as string | undefined;
-  const source = req.body?.source as string | undefined;
+  const userId = req.userId!;
 
-  const existing = await validateResourceForAction(resourceId, 'stopped', res);
+  const existing = await validateResourceForAction(resourceId, 'stopped', res, userId);
   if (!existing) return;
 
-  const error = await executeAdapterAction(existing, resourceId!, source, 'stop', 'stopResource');
-  if (error) { res.status(502).json({ error }); return; }
+  const error = await executeAdapterAction(existing, resourceId!, userId, 'stop', 'stopResource');
+  if (error) {
+    await createAction({ userId, resourceId: resourceId!, action: 'stop', status: 'failed' });
+    res.status(502).json({ error });
+    return;
+  }
 
   const resource = await stopResource(resourceId);
   setLastActionAt(resourceId!);
@@ -108,18 +116,30 @@ export async function postStop(req: Request, res: Response): Promise<void> {
     ? ` (was running for ${formatDuration(Date.now() - new Date(existing.startedAt).getTime())})`
     : '';
   await addLog({ resourceId: resource.id, type: 'action', message: `${resource.name} stopped by user${duration}` });
+  await createAction({ userId, resourceId: resource.id, action: 'stop', status: 'completed' });
+  await createSavingsRecord({
+    userId,
+    resourceId: resource.id,
+    instanceType: existing.instanceType ?? 'unknown',
+    costPerHour: existing.costPerHour,
+    stoppedAt: new Date().toISOString(),
+  });
   res.json({ resource, action: { type: 'stop', status: 'completed', triggeredBy: 'user' } });
 }
 
 export async function postRestart(req: Request, res: Response): Promise<void> {
   const resourceId = req.body?.resourceId as string | undefined;
-  const source = req.body?.source as string | undefined;
+  const userId = req.userId!;
 
-  const existing = await validateResourceForAction(resourceId, 'running', res);
+  const existing = await validateResourceForAction(resourceId, 'running', res, userId);
   if (!existing) return;
 
-  const error = await executeAdapterAction(existing, resourceId!, source, 'start', 'startResource');
-  if (error) { res.status(502).json({ error }); return; }
+  const error = await executeAdapterAction(existing, resourceId!, userId, 'start', 'startResource');
+  if (error) {
+    await createAction({ userId, resourceId: resourceId!, action: 'restart', status: 'failed' });
+    res.status(502).json({ error });
+    return;
+  }
 
   const resource = await restartResource(resourceId);
   setLastActionAt(resourceId!);
@@ -127,5 +147,15 @@ export async function postRestart(req: Request, res: Response): Promise<void> {
     ? ` (was stopped for ${formatDuration(Date.now() - new Date(existing.stoppedAt).getTime())})`
     : '';
   await addLog({ resourceId: resource.id, type: 'action', message: `${resource.name} restarted${downtime} — monitoring resumed` });
+  await createAction({ userId, resourceId: resource.id, action: 'restart', status: 'completed' });
+  await finalizeSavingsRecord(userId, resource.id, new Date().toISOString());
   res.json({ resource, action: { type: 'restart', status: 'completed' } });
+}
+
+// Unified endpoint: POST /action { resourceId, actionType: 'stop' | 'restart' }
+export async function postAction(req: Request, res: Response): Promise<void> {
+  const actionType = req.body?.actionType as string | undefined;
+  if (actionType === 'stop') return postStop(req, res);
+  if (actionType === 'restart') return postRestart(req, res);
+  res.status(400).json({ error: 'actionType must be "stop" or "restart"' });
 }

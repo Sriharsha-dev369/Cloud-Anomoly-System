@@ -8,6 +8,7 @@ export interface ResourceDocument extends Document {
   stoppedAt?: string;
   startedAt?: string;
   instanceType?: string;
+  userId?: string; // set for user-owned resources; absent for seeded demo resources
 }
 
 const ResourceSchema = new Schema<ResourceDocument>({
@@ -18,6 +19,7 @@ const ResourceSchema = new Schema<ResourceDocument>({
   stoppedAt:    { type: String },
   startedAt:    { type: String },
   instanceType: { type: String },
+  userId:       { type: String, index: true },
 });
 
 export const ResourceModel = mongoose.model<ResourceDocument>('Resource', ResourceSchema);

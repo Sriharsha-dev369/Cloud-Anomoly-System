@@ -1,18 +1,35 @@
 import { Request, Response } from 'express';
 import { generateMetrics } from '../services/metricsService';
 import { detectAnomalies } from '../services/anomalyService';
-import { getResource, addLog, hasAnomalyBeenLogged, markAnomalyLogged } from '../store/inMemoryStore';
+import { getUserResource, addLog, hasAnomalyBeenLogged, markAnomalyLogged } from '../store/inMemoryStore';
 import { getAnomalyReasonLabel } from '../utils/anomalyLabels';
+import { findAnomaliesByUser } from '../repositories/anomalyRepository';
 
 export async function getAnomalies(req: Request, res: Response): Promise<void> {
   const resourceId = req.query.resourceId as string | undefined;
   const source = req.query.source as string | undefined;
-  const metrics = await generateMetrics(resourceId, source);
+  const userId = req.userId!;
+
+  // For user-owned resources: return stored anomalies from DB (populated by background detection).
+  // The background runUserDetectionCycle() keeps these current.
+  const stored = await findAnomaliesByUser(userId, resourceId);
+  if (stored.length > 0) {
+    res.json(stored.map((a) => ({
+      resourceId: a.resourceId,
+      type: a.type,
+      confidence: a.confidence,
+      detectedAt: a.detectedAt,
+    })));
+    return;
+  }
+
+  // Fallback: on-demand detection (demo resources or before first background cycle).
+  const metrics = await generateMetrics(resourceId, source, undefined, userId);
   const anomalies = detectAnomalies(metrics);
 
   let resource;
   try {
-    resource = await getResource(resourceId);
+    resource = await getUserResource(resourceId!, userId);
   } catch {
     res.json([]);
     return;
@@ -29,8 +46,6 @@ export async function getAnomalies(req: Request, res: Response): Promise<void> {
       await addLog({ resourceId: resource.id, type: 'anomaly', message: `Anomaly detected on ${resource.name}: ${reasonLabel} (confidence: ${Math.round(anomalies[0].confidence * 100)}%)` });
       markAnomalyLogged(resource.id);
     }
-
-    // Auto-stop logic removed — handled by syncEngine.runDetectionCycle()
   }
 
   res.json(anomalies);

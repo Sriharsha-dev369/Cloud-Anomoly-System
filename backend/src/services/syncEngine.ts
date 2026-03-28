@@ -5,6 +5,7 @@ import { DetectedAnomaly } from '../detectors/types';
 import { getAdapter } from '../adapters';
 import {
   getAllResources,
+  getUserResources,
   stopResource,
   restartResource,
   addLog,
@@ -16,10 +17,13 @@ import {
   markAutoStopped,
   setLastActionAt,
 } from '../store/inMemoryStore';
+import { getAllConnectedUserIds } from './awsCredentialService';
+import { getAdapterForUser } from '../adapters';
 import { withRetry, classifyAwsError } from '../utils/awsRetry';
 import { AWS_REGION, isAwsMode } from '../utils/awsConfig';
 import { getInstanceId } from '../utils/instanceMap';
 import { getAnomalyReasonLabel } from '../utils/anomalyLabels';
+import { upsertAnomaly, clearAnomaliesForResource } from '../repositories/anomalyRepository';
 
 const POLL_INTERVAL_MS = 90_000;   // 90s — respects CloudWatch 60s granularity
 const DETECT_INTERVAL_MS = 30_000; // 30s — detection + auto-mode cycle
@@ -34,6 +38,35 @@ export function getCachedMetrics(resourceId: string): Metric[] | null {
   const ageMs = Date.now() - entry.fetchedAt;
   if (ageMs > CACHE_TTL_MS) return null;
   return entry.metrics;
+}
+
+// ── Per-user metrics polling ───────────────────────────────────────────────
+async function pollUserMetrics(): Promise<void> {
+  try {
+    const userIds = await getAllConnectedUserIds();
+    for (const userId of userIds) {
+      try {
+        const resources = await getUserResources(userId);
+        const running = resources.filter((r) => r.status === 'running');
+        if (running.length === 0) continue;
+
+        const adapter = await getAdapterForUser(userId);
+        for (const resource of running) {
+          try {
+            const metrics = await adapter.getMetrics(resource.id, resource);
+            metricsCache.set(resource.id, { metrics, fetchedAt: Date.now() });
+          } catch (err) {
+            console.error(`[syncEngine] Failed to fetch metrics for user ${userId} resource ${resource.id}:`, (err as Error).message);
+          }
+        }
+        console.debug(`[syncEngine] Polled ${running.length} resource(s) for user ${userId}`);
+      } catch (err) {
+        console.error(`[syncEngine] User ${userId} metrics poll failed:`, (err as Error).message);
+      }
+    }
+  } catch (err) {
+    console.error('[syncEngine] User metrics poll failed:', err);
+  }
 }
 
 // ── Metrics polling ────────────────────────────────────────────────────────
@@ -193,6 +226,48 @@ async function runDetectionCycle(): Promise<void> {
   }
 }
 
+// ── Per-user detection cycle ───────────────────────────────────────────────
+async function runUserDetectionCycle(): Promise<void> {
+  try {
+    const userIds = await getAllConnectedUserIds();
+    for (const userId of userIds) {
+      try {
+        const resources = await getUserResources(userId);
+        const running = resources.filter((r) => r.status === 'running');
+        for (const resource of running) {
+          const cached = getCachedMetrics(resource.id);
+          if (!cached || cached.length === 0) continue;
+
+          const anomalies = runDetectionPipeline(cached);
+
+          if (anomalies.length === 0) {
+            await clearAnomaliesForResource(userId, resource.id);
+            continue;
+          }
+
+          for (const anomaly of anomalies) {
+            await upsertAnomaly(userId, anomaly);
+          }
+
+          if (!hasAnomalyBeenLogged(resource.id)) {
+            const reasonLabel = getAnomalyReasonLabel(anomalies[0].type);
+            await addLog({
+              resourceId: resource.id,
+              type: 'anomaly',
+              message: `Anomaly detected on ${resource.name}: ${reasonLabel} (confidence: ${Math.round(anomalies[0].confidence * 100)}%)`,
+            });
+            markAnomalyLogged(resource.id);
+          }
+        }
+      } catch (err) {
+        console.error(`[syncEngine] User ${userId} detection cycle failed:`, (err as Error).message);
+      }
+    }
+  } catch (err) {
+    console.error('[syncEngine] User detection cycle failed:', err);
+  }
+}
+
 // ── Engine entry point ─────────────────────────────────────────────────────
 export function startSyncEngine(): void {
   console.log('[syncEngine] Started — metrics every 90s, detection every 30s');
@@ -200,6 +275,7 @@ export function startSyncEngine(): void {
   // Metrics + reconciliation: every 90s
   const metricsTick = async () => {
     await pollMetrics();
+    await pollUserMetrics();
     await reconcileState();
   };
   metricsTick();
@@ -208,6 +284,7 @@ export function startSyncEngine(): void {
   // Detection + auto-mode: every 30s (offset 5s to let first metrics populate)
   setTimeout(() => {
     runDetectionCycle();
-    setInterval(runDetectionCycle, DETECT_INTERVAL_MS);
+    runUserDetectionCycle();
+    setInterval(() => { runDetectionCycle(); runUserDetectionCycle(); }, DETECT_INTERVAL_MS);
   }, 5_000);
 }

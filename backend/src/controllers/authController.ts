@@ -1,16 +1,36 @@
 import { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
+import { signup, login } from '../services/authService';
 
-export const JWT_SECRET = 'cloud-anomaly-demo-secret';
+export async function postSignup(req: Request, res: Response): Promise<void> {
+  const { email, password } = req.body as { email?: string; password?: string };
 
-const DEMO_USER = { username: 'admin', password: 'demo' };
-
-export function postLogin(req: Request, res: Response): void {
-  const { username, password } = req.body as { username?: string; password?: string };
-  if (username !== DEMO_USER.username || password !== DEMO_USER.password) {
-    res.status(401).json({ error: 'Invalid credentials' });
+  if (!email || !password) {
+    res.status(400).json({ error: 'Email and password are required' });
     return;
   }
-  const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '8h' });
-  res.json({ token });
+
+  try {
+    const { token, userId } = await signup(email, password);
+    res.status(201).json({ token, userId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Signup failed';
+    const status = message === 'Email already registered' ? 409 : 500;
+    res.status(status).json({ error: message });
+  }
+}
+
+export async function postLogin(req: Request, res: Response): Promise<void> {
+  const { email, password } = req.body as { email?: string; password?: string };
+
+  if (!email || !password) {
+    res.status(400).json({ error: 'Email and password are required' });
+    return;
+  }
+
+  try {
+    const { token, userId } = await login(email, password);
+    res.json({ token, userId });
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid credentials' });
+  }
 }

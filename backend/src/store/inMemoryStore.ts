@@ -2,10 +2,11 @@ import { Resource, Log } from '../models/types';
 import {
   findAllResources,
   findOneResource,
+  findResourcesByUser,
   updateResourceStopped,
   updateResourceRunning,
 } from '../repositories/resourceRepository';
-import { createLog, findLogs } from '../repositories/logRepository';
+import { createLog, findLogs, findLogsByResourceIds } from '../repositories/logRepository';
 import { ResourceDocument } from '../db/ResourceModel';
 
 // ── Runtime state (intentionally resets on server restart) ─────────────────
@@ -102,6 +103,36 @@ export async function addLog(entry: Omit<Log, 'timestamp'>): Promise<void> {
 
 export async function getLogs(resourceId?: string, since?: string): Promise<Log[]> {
   const docs = await findLogs(resourceId, since);
+  return docs.map((d) => ({
+    timestamp: d.timestamp,
+    resourceId: d.resourceId,
+    type: d.type,
+    message: d.message,
+  }));
+}
+
+// ── User-scoped helpers ─────────────────────────────────────────────────────
+
+export async function getUserResources(userId: string): Promise<Resource[]> {
+  const docs = await findResourcesByUser(userId);
+  return docs.map(toResource);
+}
+
+export async function getUserResource(id: string, userId: string): Promise<Resource> {
+  const docs = await findResourcesByUser(userId);
+  const doc = docs.find((d) => d.resourceId === id);
+  if (!doc) throw new Error(`Resource ${id} not found`);
+  return toResource(doc);
+}
+
+export async function getUserLogs(userId: string, resourceId?: string, since?: string): Promise<Log[]> {
+  const userDocs = await findResourcesByUser(userId);
+  const resourceIds = userDocs.map((d) => d.resourceId);
+  // If a specific resourceId is requested, verify it belongs to this user
+  const ids = resourceId
+    ? resourceIds.filter((r) => r === resourceId)
+    : resourceIds;
+  const docs = await findLogsByResourceIds(ids, since);
   return docs.map((d) => ({
     timestamp: d.timestamp,
     resourceId: d.resourceId,

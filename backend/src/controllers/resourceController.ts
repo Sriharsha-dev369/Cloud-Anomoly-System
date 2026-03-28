@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { getAllResources } from '../store/inMemoryStore';
+import { getUserResources } from '../store/inMemoryStore';
 
-export async function getResources(_req: Request, res: Response): Promise<void> {
-  const resources = await getAllResources();
+export async function getResources(req: Request, res: Response): Promise<void> {
+  const resources = await getUserResources(req.userId!);
   res.json(resources);
 }

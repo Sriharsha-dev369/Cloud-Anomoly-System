@@ -81,6 +81,33 @@ export async function clearEC2Resources(): Promise<void> {
   await ResourceModel.deleteMany({ resourceId: /^i-/ });
 }
 
+// ── User-scoped resource functions ──────────────────────────────────────────
+
+export async function findResourcesByUser(userId: string): Promise<ResourceDocument[]> {
+  return ResourceModel.find({ userId }).sort({ resourceId: 1 });
+}
+
+export async function upsertUserResource(data: {
+  resourceId: string;
+  userId: string;
+  name: string;
+  instanceType: string;
+  status: 'running' | 'stopped';
+  costPerHour: number;
+  startedAt?: string;
+}): Promise<void> {
+  const { resourceId, startedAt, ...fields } = data;
+
+  const update: Record<string, unknown> = { $set: fields };
+
+  if (data.status === 'running') {
+    update.$unset = { stoppedAt: '' };
+    if (startedAt) update.$setOnInsert = { startedAt };
+  }
+
+  await ResourceModel.updateOne({ resourceId }, update, { upsert: true });
+}
+
 export async function countResources(): Promise<number> {
   return ResourceModel.countDocuments();
 }

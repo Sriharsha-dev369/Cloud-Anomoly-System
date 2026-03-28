@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { getMetrics } from '../controllers/metricsController';
+import { postConnect } from '../controllers/awsController';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
-router.get('/', requireAuth, getMetrics);
+router.post('/connect', requireAuth, postConnect);
 export default router;

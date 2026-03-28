@@ -2,22 +2,34 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import app from '../app';
 import { generateMetrics } from '../services/metricsService';
-import { getResource, stopResource, restartResource, addLog } from '../store/inMemoryStore';
+import { getUserResource, stopResource, restartResource, addLog } from '../store/inMemoryStore';
 import { calculateSavings } from '../services/savingsService';
+import { JWT_SECRET } from '../services/authService';
+import { getAdapterForUser } from '../adapters';
+import { createAction } from '../repositories/actionRepository';
+import { createSavingsRecord, finalizeSavingsRecord } from '../repositories/savingsRepository';
 
 jest.mock('../services/metricsService');
 jest.mock('../store/inMemoryStore');
 jest.mock('../services/savingsService');
+jest.mock('../adapters');
+jest.mock('../repositories/actionRepository');
+jest.mock('../repositories/savingsRepository');
 
 const mockGenerateMetrics = jest.mocked(generateMetrics);
-const mockGetResource = jest.mocked(getResource);
+const mockGetUserResource = jest.mocked(getUserResource);
 const mockStopResource = jest.mocked(stopResource);
 const mockRestartResource = jest.mocked(restartResource);
 const mockAddLog = jest.mocked(addLog);
 const mockCalculateSavings = jest.mocked(calculateSavings);
+const mockGetAdapterForUser = jest.mocked(getAdapterForUser);
+const mockCreateAction = jest.mocked(createAction);
+const mockCreateSavingsRecord = jest.mocked(createSavingsRecord);
+const mockFinalizeSavingsRecord = jest.mocked(finalizeSavingsRecord);
 
-const JWT_SECRET = 'cloud-anomaly-demo-secret';
-const authToken = jwt.sign({ username: 'admin' }, JWT_SECRET);
+const mockAdapter = { stopResource: jest.fn(), startResource: jest.fn(), getMetrics: jest.fn() };
+
+const authToken = jwt.sign({ userId: 'test-user-id' }, JWT_SECRET);
 
 const runningResource = { id: 'res-001', name: 'web-server-01', status: 'running' as const, costPerHour: 0.5 };
 const stoppedResource = { ...runningResource, status: 'stopped' as const, stoppedAt: '2026-03-28T11:00:00Z' };
@@ -32,12 +44,19 @@ describe('GET /metrics', () => {
     }));
     mockGenerateMetrics.mockResolvedValue(fakeMetrics);
 
-    const res = await request(app).get('/metrics?resourceId=res-001');
+    const res = await request(app)
+      .get('/metrics?resourceId=res-001')
+      .set('Authorization', `Bearer ${authToken}`);
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body).toHaveLength(60);
     expect(res.body[0]).toMatchObject({ resourceId: 'res-001', cpu: 70 });
+  });
+
+  it('returns 401 without a token', async () => {
+    const res = await request(app).get('/metrics?resourceId=res-001');
+    expect(res.status).toBe(401);
   });
 });
 
@@ -60,9 +79,12 @@ describe('POST /action/stop', () => {
   });
 
   it('stops a running resource and returns action with triggeredBy user', async () => {
-    mockGetResource.mockResolvedValue(runningResource);
+    mockGetUserResource.mockResolvedValue(runningResource);
     mockStopResource.mockResolvedValue(stoppedResource);
     mockAddLog.mockResolvedValue(undefined);
+    mockGetAdapterForUser.mockResolvedValue(mockAdapter);
+    mockCreateAction.mockResolvedValue(undefined);
+    mockCreateSavingsRecord.mockResolvedValue(undefined);
 
     const res = await request(app)
       .post('/action/stop')
@@ -76,7 +98,7 @@ describe('POST /action/stop', () => {
   });
 
   it('returns 409 when resource is already stopped', async () => {
-    mockGetResource.mockResolvedValue(stoppedResource);
+    mockGetUserResource.mockResolvedValue(stoppedResource);
 
     const res = await request(app)
       .post('/action/stop')
@@ -88,7 +110,7 @@ describe('POST /action/stop', () => {
   });
 
   it('returns 404 when resource is not found', async () => {
-    mockGetResource.mockRejectedValue(new Error('Resource unknown not found'));
+    mockGetUserResource.mockRejectedValue(new Error('Resource unknown not found'));
 
     const res = await request(app)
       .post('/action/stop')
@@ -119,9 +141,12 @@ describe('POST /action/restart', () => {
   });
 
   it('restarts a stopped resource', async () => {
-    mockGetResource.mockResolvedValue(stoppedResource);
+    mockGetUserResource.mockResolvedValue(stoppedResource);
     mockRestartResource.mockResolvedValue(runningResource);
     mockAddLog.mockResolvedValue(undefined);
+    mockGetAdapterForUser.mockResolvedValue(mockAdapter);
+    mockCreateAction.mockResolvedValue(undefined);
+    mockFinalizeSavingsRecord.mockResolvedValue(undefined);
 
     const res = await request(app)
       .post('/action/restart')
@@ -134,7 +159,7 @@ describe('POST /action/restart', () => {
   });
 
   it('returns 409 when resource is already running', async () => {
-    mockGetResource.mockResolvedValue(runningResource);
+    mockGetUserResource.mockResolvedValue(runningResource);
 
     const res = await request(app)
       .post('/action/restart')
@@ -146,7 +171,7 @@ describe('POST /action/restart', () => {
   });
 
   it('returns 404 when resource is not found', async () => {
-    mockGetResource.mockRejectedValue(new Error('Resource unknown not found'));
+    mockGetUserResource.mockRejectedValue(new Error('Resource unknown not found'));
 
     const res = await request(app)
       .post('/action/restart')
@@ -162,7 +187,9 @@ describe('GET /savings', () => {
   it('returns savings amount for a stopped resource', async () => {
     mockCalculateSavings.mockResolvedValue(1.25);
 
-    const res = await request(app).get('/savings?resourceId=res-001');
+    const res = await request(app)
+      .get('/savings?resourceId=res-001')
+      .set('Authorization', `Bearer ${authToken}`);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ savings: 1.25 });
@@ -171,9 +198,16 @@ describe('GET /savings', () => {
   it('returns 0 when resource is running', async () => {
     mockCalculateSavings.mockResolvedValue(0);
 
-    const res = await request(app).get('/savings?resourceId=res-001');
+    const res = await request(app)
+      .get('/savings?resourceId=res-001')
+      .set('Authorization', `Bearer ${authToken}`);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ savings: 0 });
+  });
+
+  it('returns 401 without a token', async () => {
+    const res = await request(app).get('/savings?resourceId=res-001');
+    expect(res.status).toBe(401);
   });
 });

@@ -1,51 +1,64 @@
-# Cloud Cost Optimizer AWS Mode – Agent Instructions
+# Cloud Cost Optimizer – Production SaaS Mode (Agent Instructions)
+
+## HARD RULES FOR BUILDING(STRICT)
+
+Key Strategy
+
+- Build layer by layer, not everything together
+- Keep existing pipeline intact
+- Add user layer on top, not rewrite
 
 ## PROJECT GOAL
 
-Enable **real AWS integration** while preserving the exact behavior of simulation mode.
+Transform the system from a **demo / hardcoded setup** into a **real multi-user SaaS platform**.
 
 Demonstrate:
 
-Real Metrics → Detection → Safe Action → Real Savings → Logs → UI
+User Auth → AWS Connect → Real Resources → Detection → Safe Action → Cost Savings → Logs → UI
 
-System must behave **identically in both modes** (mock vs AWS)
+System must work for **any user connecting their own AWS account**, not just predefined data.
 
 ---
 
-## CORE FLOW (AWS MODE)
+## CORE FLOW (PRODUCTION MODE)
 
-CloudWatch → Normalize → Detection Pipeline → Decision → Action → Cost Engine → Logs → UI
+```text
+User → Auth → AWS Connect → Fetch Resources → Normalize → Detect → Decide → Act → Cost Engine → Logs → UI
+```
 
 The system must clearly show:
 
-1. Real AWS metrics ingestion
-2. Normalized data (same format as mock)
-3. Anomaly detection working unchanged
-4. Safe execution of actions (stop/start)
-5. Realistic cost estimation
-6. Logs reflecting real events
+1. User-specific environment (no shared/global state)
+2. Secure AWS credential usage
+3. Real EC2 resources fetched dynamically
+4. Detection pipeline working unchanged
+5. Safe execution of actions (per user)
+6. Accurate cost + savings tracking
 
-If all 6 work → AWS mode complete
+If all 6 work → Production system complete
 
 ---
 
 ## HARD RULES (STRICT)
 
-* Do NOT break simulation mode
-* Do NOT tightly couple AWS logic with core system
-* Do NOT expose raw AWS responses to UI
-* Do NOT assume AWS data is always available
-* Always normalize AWS data to internal format
-* Always provide fallback (mock mode)
+- Do NOT break existing detection logic
+- Do NOT break simulation mode
+- Do NOT store or expose raw AWS credentials
+- Do NOT mix user data across accounts
+- Do NOT tightly couple AWS logic with core system
+- Always normalize AWS data to internal format
+- Always maintain fallback (simulation mode)
 
 ---
 
 ## CORE ARCHITECTURE
 
-```text id="aws-arch-1"
-Frontend (Dashboard)
+```text
+Frontend (User Dashboard)
         ↓
-Backend API
+Backend API (Auth + Business Logic)
+        ↓
+User Context Layer (per-user isolation)
         ↓
 Cloud Adapter Layer
    ├── MockAdapter
@@ -57,237 +70,277 @@ Action Layer
         ↓
 Cost Engine
         ↓
-Data Layer (DB)
+Database (User-scoped)
 ```
 
 ---
 
-## CLOUD ADAPTER DESIGN (CRITICAL)
+## USER SYSTEM (CRITICAL)
 
-### Interface (COMMON)
+### Authentication
 
-```ts id="aws-iface-1"
-getMetrics(resourceId): Metric[]
-stopResource(resourceId): void
-startResource(resourceId): void
-getCost(resourceId): number
-```
+Implement:
 
----
+- Signup / Login
+- JWT-based authentication
+- Password hashing (bcrypt)
 
-### MockAdapter
+Each request must:
 
-* Uses static / simulated data
-* Already implemented
-* Must remain unchanged
+- Be authenticated
+- Be tied to a specific user
 
 ---
 
-### AWSAdapter (NEW)
-
-Responsibilities:
-
-* Fetch CPU metrics from CloudWatch
-* Control EC2 instances (stop/start)
-* Provide cost estimation
+### User Isolation
 
 Rule:
 
-Return **same structure as MockAdapter**
+- Every user has:
+  - Their own AWS connection
+  - Their own resources
+  - Their own logs
+  - Their own anomalies
+
+No shared memory or global variables
 
 ---
 
-## AWS INTEGRATION DETAILS
+## AWS INTEGRATION (USER-BASED)
 
-### 1. Metrics (CloudWatch)
+### Credential Handling
 
-Source:
+Support:
 
-* AWS CloudWatch
+- Access Key ID
+- Secret Access Key
 
-Data:
+Rules:
 
-* CPUUtilization
+- Store encrypted in DB
+- Never send to frontend
+- Validate before saving
 
-Steps:
+---
 
-1. Fetch metrics
-2. Convert to internal format:
+### AWSAdapter Responsibilities
 
-```ts id="aws-metric-format"
+- Fetch EC2 instances
+- Fetch CloudWatch metrics
+- Execute stop/start actions
+- Provide cost estimation
+
+---
+
+## RESOURCE MANAGEMENT
+
+### Dynamic Fetching
+
+Replace hardcoded resources with:
+
+- Real EC2 instances per user
+
+Each resource:
+
+```ts
+Resource = {
+  instanceId,
+  type,
+  state,
+  region,
+  userId,
+};
+```
+
+---
+
+### Metrics (CloudWatch)
+
+Normalize to:
+
+```ts
 Metric = {
   resourceId,
   timestamp,
   cpu,
-  cost
-}
+  cost,
+};
 ```
-
----
-
-### 2. Resource Control (EC2)
-
-Actions:
-
-* Stop instance
-* Start instance
-
-Rules:
-
-* Always confirm before stopping
-* Apply cooldown (prevent repeated actions)
-* Update system DB after action
-
----
-
-### 3. Cost Estimation
-
-Options:
-
-* Simple approximation (preferred)
-* OR AWS pricing API (optional)
 
 Rule:
 
-Keep it simple:
+Detection system must NOT know data source
 
-```ts id="aws-cost"
+---
+
+## DETECTION SYSTEM
+
+- Use existing logic unchanged
+- Must work on normalized data
+- Must run per user
+
+---
+
+## ACTION SYSTEM (REAL AWS)
+
+Actions:
+
+- Stop instance
+- Start instance
+
+Rules:
+
+- Always scoped per user
+- Require confirmation
+- Apply cooldown (prevent spam)
+- Sync DB after execution
+
+---
+
+## COST ENGINE
+
+Rule:
+
+Keep existing logic
+
+```ts
 cost = hourlyRate × usageDuration
 ```
+
+Enhancements:
+
+- Use real instance types
+- Track per-user savings
 
 ---
 
 ## NORMALIZATION LAYER (MANDATORY)
 
-AWS data must be transformed into:
+All AWS data must be converted into:
 
-* Metric
-* Resource
-* Action
+- Resource
+- Metric
+- Action
 
 Rule:
 
-Core system should **never know data source**
-
----
-
-## BUSINESS LOGIC RULES
-
-### Detection
-
-* Must work unchanged from V2
-* Same detectors used
-
----
-
-### Action
-
-* Trigger via adapter
-* Update DB
-* Log event
-
----
-
-### Cost Engine
-
-* Use same logic as simulation
-* No AWS-specific logic inside
-
----
-
-### Logs
-
-Must include:
-
-* "AWS_METRIC_FETCHED"
-* "AWS_ACTION_TRIGGERED"
-* "AWS_ACTION_COMPLETED"
-
----
-
-## SAFETY SYSTEM (CRITICAL)
-
-### Mode Control
-
-* Default → simulation
-* AWS mode must be explicitly enabled
-
----
-
-### Action Safety
-
-Before stopping:
-
-* Require confirmation
-* Apply cooldown (e.g., 5–10 mins)
-
----
-
-### Failure Handling
-
-If AWS fails:
-
-* Fallback to mock mode OR
-* Show safe error state
+Core system must remain **cloud-agnostic**
 
 ---
 
 ## DATA STORAGE
 
-Store:
+Store per user:
 
-* normalized metrics
-* anomalies
-* actions
-* logs
+- resources
+- metrics
+- anomalies
+- actions
+- savings
+- logs
+- aws credentials (encrypted)
 
 Do NOT store raw AWS responses
 
 ---
 
-## API CONTRACT (UNCHANGED)
+## API CONTRACT
 
-Same APIs as V2:
+Extend existing APIs with auth:
 
-* GET /resources
-* GET /metrics
-* GET /anomalies
-* POST /action/stop
-* GET /savings
-* GET /logs
+- POST /auth/signup
+- POST /auth/login
+- POST /aws/connect
+
+Existing (user-scoped):
+
+- GET /resources
+- GET /metrics
+- GET /anomalies
+- POST /action/stop
+- GET /savings
+- GET /logs
 
 Rule:
 
-API must behave same in both modes
+All APIs must respect user isolation
 
 ---
 
 ## UI REQUIREMENTS
 
-### Mode Indicator (NEW)
+### Authentication UI
 
-Show:
-
-* "Simulation Mode"
-* "AWS Live Mode"
+- Login / Signup pages
 
 ---
 
-### Behavior
+### AWS Connect UI
 
-UI must:
+- Input credentials securely
+- Show connection status
 
-* Show identical structure in both modes
-* Not expose AWS complexity
-* Clearly reflect real-time actions
+---
+
+### Dashboard
+
+Display:
+
+- User’s EC2 instances
+- CPU usage
+- Cost/hour
+- Anomalies
+- Actions taken
+- Savings
+
+---
+
+### Mode Indicator
+
+Show:
+
+- "Simulation Mode"
+- "AWS Live Mode"
 
 ---
 
 ### Safety UX
 
-* Confirmation dialog before stop
-* Loading states for AWS calls
-* Error messages if AWS fails
+- Confirmation before stopping instance
+- Loading states
+- Error handling (AWS failures)
+
+---
+
+## FALLBACK SYSTEM
+
+If:
+
+- No AWS connected OR
+- AWS fails
+
+Then:
+
+→ Switch to simulation mode
+
+```env
+DATA_SOURCE = aws | simulation
+```
+
+---
+
+## CODE QUALITY RULES
+
+- Remove dead code
+- Remove hardcoded values
+- Use service-based structure:
+  - authService
+  - awsService
+  - resourceService
+  - anomalyService
+
+- Use environment variables properly
+- Keep functions small and testable
 
 ---
 
@@ -295,62 +348,63 @@ UI must:
 
 backend/
 
-* server.js
-* routes/
-* adapters/
+- server.ts
+- routes/
+- controllers/
+- services/
+- adapters/
+  - MockAdapter.ts
+  - AWSAdapter.ts
 
-  * MockAdapter.js
-  * AWSAdapter.js
-* detectors/
-* services/
-* cost/
-* modules/
-* store/
+- middleware/
+  - authMiddleware.ts
+
+- models/
+- utils/
+- store/
 
 frontend/
 
-* App.jsx
-* pages/
-* components/
+- pages/
+  - Login.jsx
+  - Signup.jsx
+  - Dashboard.jsx
+  - AWSConnect.jsx
 
-  * ModeToggle.jsx  ← NEW
-  * Dashboard.jsx
-  * ResourceDetail.jsx
-
----
-
-## IMPLEMENTATION STYLE
-
-* Keep AWS logic isolated
-* Use adapter pattern strictly
-* Avoid SDK leakage into business logic
-* Keep functions small and testable
-* Prefer clarity over completeness
+- components/
+  - ResourceCard.jsx
+  - ModeToggle.jsx
+  - AnomalyPanel.jsx
 
 ---
 
 ## SUCCESS CHECKLIST (MUST PASS)
 
-* AWS metrics fetched successfully
-* Data normalized correctly
-* Detection works on AWS data
-* Stop/start actions work safely
-* Cost calculated realistically
-* Logs reflect AWS operations
-* Simulation mode still works perfectly
-* UI behaves identically in both modes
+- User can signup/login
+- AWS account connects successfully
+- EC2 instances fetched dynamically
+- Metrics normalized correctly
+- Detection works per user
+- Actions (stop/start) work on real AWS
+- Cost + savings tracked per user
+- Logs reflect real events
+- Simulation mode still works perfectly
+- UI behaves like a real SaaS product
 
 ---
 
 ## PRIORITY ORDER
 
-1. AWSAdapter (metrics fetch)
-2. Normalization layer
-3. Detection on AWS data
-4. EC2 actions (stop/start)
-5. Cost estimation
-6. Logs integration
-7. UI mode toggle + safety
+1. Auth system (JWT + user model)
+2. AWS credential integration
+3. Resource fetching (EC2)
+4. User-scoped DB refactor
+5. Metrics + normalization
+6. Detection per user
+7. Action system (real AWS)
+8. Cost + savings tracking
+9. UI integration
+10. Cleanup + stabilization
 
 ---
 
@@ -358,12 +412,15 @@ frontend/
 
 This phase ensures:
 
-> “System works with real cloud data”
+> “System works for real users with real cloud accounts”
 
-Next phase adds:
+Next phase can focus on:
 
-> “System becomes intelligent”
+> “Automation + Intelligence (ML / AI decisions)”
 
-Do not mix both.
+Do NOT mix both.
 
-Real integration first → intelligence later.
+First: **Make it usable**
+Then: **Make it intelligent**
+
+---
