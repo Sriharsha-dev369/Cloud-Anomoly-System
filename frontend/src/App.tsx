@@ -10,14 +10,16 @@ import LogsTimeline from './components/LogsTimeline'
 import LoginForm from './components/LoginForm'
 import { Anomaly, Log, Metric, Resource } from './types'
 
-function qs(resourceId: string) {
-  return `?resourceId=${resourceId}`;
+function qs(resourceId: string, source: 'mock' | 'aws') {
+  return `?resourceId=${resourceId}&source=${source}`;
 }
 
 export default function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'))
   const [resources, setResources] = useState<Resource[]>([])
+  const [liveResources, setLiveResources] = useState<Resource[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
+  const [selectedSource, setSelectedSource] = useState<'mock' | 'aws'>('mock')
   const [metrics, setMetrics] = useState<Metric[]>([])
   const [anomalies, setAnomalies] = useState<Anomaly[]>([])
   const [stopping, setStopping] = useState(false)
@@ -39,17 +41,18 @@ export default function App() {
     if (intervalRef.current) clearInterval(intervalRef.current)
   }
 
-  function fetchData(id: string) {
-    fetch(`/api/metrics${qs(id)}`).then((r) => r.json()).then(setMetrics).catch(console.error)
-    fetchLogs(id)
-    fetch(`/api/anomalies${qs(id)}`).then((r) => r.json()).then(setAnomalies).catch(console.error)
-    fetch('/api/resources').then((r) => r.json()).then((list: Resource[]) => {
-      setResources(list)
+  function fetchData(id: string, source: 'mock' | 'aws') {
+    fetch(`/api/metrics${qs(id, source)}`).then((r) => r.json()).then(setMetrics).catch(console.error)
+    fetchLogs(id, source)
+    fetch(`/api/anomalies${qs(id, source)}`).then((r) => r.json()).then(setAnomalies).catch(console.error)
+    const resourcesUrl = source === 'aws' ? '/api/resources/live' : '/api/resources'
+    fetch(resourcesUrl).then((r) => r.json()).then((list: Resource[]) => {
+      if (source === 'aws') setLiveResources(list); else setResources(list)
       const resource = list.find((r) => r.id === id)
       if (resource?.status === 'stopped') {
         clearPoll()
-        fetchSavings(id)
-        intervalRef.current = setInterval(() => fetchSavings(id), 5_000)
+        fetchSavings(id, source)
+        intervalRef.current = setInterval(() => fetchSavings(id, source), 5_000)
       }
     }).catch(console.error)
   }
@@ -65,38 +68,40 @@ export default function App() {
       .catch(console.error)
   }
 
-  function fetchSavings(id: string) {
-    fetch(`/api/savings${qs(id)}`).then((r) => r.json()).then((d) => setSavings(d.savings)).catch(console.error)
+  function fetchSavings(id: string, source: 'mock' | 'aws') {
+    fetch(`/api/savings${qs(id, source)}`).then((r) => r.json()).then((d) => setSavings(d.savings)).catch(console.error)
   }
 
-  function fetchLogs(id: string) {
-    fetch(`/api/logs${qs(id)}`).then((r) => r.json()).then(setLogs).catch(console.error)
+  function fetchLogs(id: string, source: 'mock' | 'aws') {
+    fetch(`/api/logs${qs(id, source)}`).then((r) => r.json()).then(setLogs).catch(console.error)
   }
 
-  // Load resource list + autoMode once
+  // Load resource lists + autoMode once
   useEffect(() => {
     fetch('/api/resources').then((r) => r.json()).then((list: Resource[]) => {
       setResources(list)
-      if (list.length > 0) setSelectedId(list[0].id)
+      if (list.length > 0) { setSelectedId(list[0].id); setSelectedSource('mock') }
     }).catch(console.error)
+    fetch('/api/resources/live').then((r) => r.json()).then(setLiveResources).catch(console.error)
     fetch('/api/automode').then((r) => r.json()).then((d: { autoMode: boolean }) => setAutoMode(d.autoMode)).catch(console.error)
   }, [])
 
-  // Re-fetch + re-poll when selected resource changes
+  // Re-fetch + re-poll when selected resource or source changes
   useEffect(() => {
     if (!selectedId) return
     clearPoll()
     setSavings(0)
     setMetrics([])
     setAnomalies([])
-    fetchData(selectedId)
+    fetchData(selectedId, selectedSource)
 
-    intervalRef.current = setInterval(() => fetchData(selectedId), 10_000)
+    intervalRef.current = setInterval(() => fetchData(selectedId, selectedSource), 10_000)
     return clearPoll
-  }, [selectedId])
+  }, [selectedId, selectedSource])
 
-  function handleResourceChange(id: string) {
+  function handleResourceChange(id: string, source: 'mock' | 'aws') {
     setStopError(null)
+    setSelectedSource(source)
     setSelectedId(id)
   }
 
@@ -122,9 +127,9 @@ export default function App() {
         setResources((prev) => prev.map((r) => r.id === data.resource.id ? data.resource : r))
         setAnomalies([])
         clearPoll()
-        fetchLogs(selectedId)
-        fetchSavings(selectedId)
-        intervalRef.current = setInterval(() => fetchSavings(selectedId), 5_000)
+        fetchLogs(selectedId, selectedSource)
+        fetchSavings(selectedId, selectedSource)
+        intervalRef.current = setInterval(() => fetchSavings(selectedId, selectedSource), 5_000)
       })
       .catch((err) => setStopError(String(err)))
       .finally(() => setStopping(false))
@@ -148,8 +153,8 @@ export default function App() {
         setSavings(0)
         setAnomalies([])
         clearPoll()
-        fetchData(selectedId)
-        intervalRef.current = setInterval(() => fetchData(selectedId), 10_000)
+        fetchData(selectedId, selectedSource)
+        intervalRef.current = setInterval(() => fetchData(selectedId, selectedSource), 10_000)
       })
       .catch((err) => setStopError(String(err)))
       .finally(() => setRestarting(false))
@@ -169,7 +174,22 @@ export default function App() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-        <ResourceSelector resources={resources} selectedId={selectedId} onChange={handleResourceChange} />
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <ResourceSelector
+            label="Mock"
+            resources={resources}
+            selectedId={selectedSource === 'mock' ? selectedId : ''}
+            onChange={(id) => handleResourceChange(id, 'mock')}
+          />
+          {liveResources.length > 0 && (
+            <ResourceSelector
+              label="AWS Live"
+              resources={liveResources}
+              selectedId={selectedSource === 'aws' ? selectedId : ''}
+              onChange={(id) => handleResourceChange(id, 'aws')}
+            />
+          )}
+        </div>
         <AutoModeToggle autoMode={autoMode} onChange={handleAutoModeChange} />
       </div>
 

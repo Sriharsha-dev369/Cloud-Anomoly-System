@@ -5,7 +5,8 @@ import { getAutoMode, getResource, stopResource, addLog, hasAnomalyBeenLogged, m
 
 export async function getAnomalies(req: Request, res: Response): Promise<void> {
   const resourceId = req.query.resourceId as string | undefined;
-  const metrics = await generateMetrics(resourceId);
+  const source = req.query.source as string | undefined;
+  const metrics = await generateMetrics(resourceId, source);
   const anomalies = detectAnomalies(metrics);
 
   const resource = await getResource(resourceId);

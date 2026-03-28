@@ -4,12 +4,13 @@ interface Props {
   resources: Resource[];
   selectedId: string;
   onChange: (id: string) => void;
+  label?: string;
 }
 
-export default function ResourceSelector({ resources, selectedId, onChange }: Props) {
+export default function ResourceSelector({ resources, selectedId, onChange, label = 'Resource' }: Props) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <label style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>Resource:</label>
+      <label style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>{label}:</label>
       <select
         value={selectedId}
         onChange={(e) => onChange(e.target.value)}
