@@ -2,7 +2,17 @@ import app from './app';
 import { connectDB } from './db/connection';
 import { startSyncEngine } from './services/syncEngine';
 
-const PORT = 4000;
+const PORT = parseInt(process.env.PORT ?? '4000', 10);
+
+// ── Process-level error guards ─────────────────────────────────────────────
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[process] Uncaught exception — exiting:', err);
+  process.exit(1);
+});
 
 connectDB().then(() => {
   startSyncEngine();

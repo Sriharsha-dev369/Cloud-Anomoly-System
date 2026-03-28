@@ -6,7 +6,7 @@ import {
   updateResourceStopped,
   updateResourceRunning,
 } from '../repositories/resourceRepository';
-import { createLog, findLogs, findLogsByResourceIds } from '../repositories/logRepository';
+import { createLog, findLogsByResourceIds } from '../repositories/logRepository';
 import { ResourceDocument } from '../db/ResourceModel';
 
 // ── Runtime state (intentionally resets on server restart) ─────────────────
@@ -99,16 +99,6 @@ export async function restartResource(id?: string): Promise<Resource> {
 // ── Logs ───────────────────────────────────────────────────────────────────
 export async function addLog(entry: Omit<Log, 'timestamp'>): Promise<void> {
   await createLog({ timestamp: new Date().toISOString(), ...entry });
-}
-
-export async function getLogs(resourceId?: string, since?: string): Promise<Log[]> {
-  const docs = await findLogs(resourceId, since);
-  return docs.map((d) => ({
-    timestamp: d.timestamp,
-    resourceId: d.resourceId,
-    type: d.type,
-    message: d.message,
-  }));
 }
 
 // ── User-scoped helpers ─────────────────────────────────────────────────────

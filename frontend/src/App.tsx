@@ -297,7 +297,7 @@ export default function App() {
       body: JSON.stringify({ resourceId: selectedId, source: selectedSource }),
     })
       .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        if (!r.ok) return r.json().then((d: { error?: string }) => { throw new Error(d.error ?? `HTTP ${r.status}`) })
         return r.json()
       })
       .then((data: { resource: Resource }) => {

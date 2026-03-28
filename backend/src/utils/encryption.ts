@@ -1,7 +1,13 @@
 import crypto from 'crypto';
 
 // Derive a stable 32-byte key from the env var (any length input → 32-byte output).
-const RAW_KEY = process.env.ENCRYPTION_KEY ?? 'cloud-anomaly-default-key-change-me';
+const ENCRYPTION_KEY_DEFAULT = 'cloud-anomaly-default-key-change-me';
+const RAW_KEY = process.env.ENCRYPTION_KEY ?? ENCRYPTION_KEY_DEFAULT;
+
+if (!process.env.ENCRYPTION_KEY) {
+  console.warn('[encryption] ENCRYPTION_KEY not set — using insecure default. Set ENCRYPTION_KEY in production.');
+}
+
 const KEY = crypto.createHash('sha256').update(RAW_KEY).digest();
 
 // AES-256-GCM: authenticated encryption — detects tampering.

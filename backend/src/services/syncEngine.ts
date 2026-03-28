@@ -40,6 +40,10 @@ export function getCachedMetrics(resourceId: string): Metric[] | null {
   return entry.metrics;
 }
 
+export function setCachedMetrics(resourceId: string, metrics: Metric[]): void {
+  metricsCache.set(resourceId, { metrics, fetchedAt: Date.now() });
+}
+
 // ── Per-user metrics polling ───────────────────────────────────────────────
 async function pollUserMetrics(): Promise<void> {
   try {
