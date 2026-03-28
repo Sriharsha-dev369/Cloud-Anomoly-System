@@ -1,7 +1,7 @@
 import { Metric } from '../models/types';
 import { getResource } from '../store/inMemoryStore';
 import { getAdapter } from '../adapters';
-import { classifyAwsError } from '../utils/retry';
+import { classifyAwsError } from '../utils/awsRetry';
 
 export async function generateMetrics(resourceId?: string, source?: string, since?: string): Promise<Metric[]> {
   try {

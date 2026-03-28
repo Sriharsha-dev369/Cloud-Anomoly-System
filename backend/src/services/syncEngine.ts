@@ -1,6 +1,7 @@
 import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
-import { Metric } from '../models/types';
+import { Metric, Resource } from '../models/types';
 import { runDetectionPipeline } from '../detectors';
+import { DetectedAnomaly } from '../detectors/types';
 import { getAdapter } from '../adapters';
 import {
   getAllResources,
@@ -15,12 +16,14 @@ import {
   markAutoStopped,
   setLastActionAt,
 } from '../store/inMemoryStore';
-import { withRetry, classifyAwsError } from '../utils/retry';
-
-const isAwsMode = () => process.env.DATA_SOURCE === 'aws';
+import { withRetry, classifyAwsError } from '../utils/awsRetry';
+import { AWS_REGION, isAwsMode } from '../utils/awsConfig';
+import { getInstanceId } from '../utils/instanceMap';
+import { getAnomalyReasonLabel } from '../utils/anomalyLabels';
 
 const POLL_INTERVAL_MS = 90_000;   // 90s — respects CloudWatch 60s granularity
 const DETECT_INTERVAL_MS = 30_000; // 30s — detection + auto-mode cycle
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes — discard stale metrics
 
 // ── Metrics cache ──────────────────────────────────────────────────────────
 const metricsCache = new Map<string, { metrics: Metric[]; fetchedAt: number }>();
@@ -29,24 +32,8 @@ export function getCachedMetrics(resourceId: string): Metric[] | null {
   const entry = metricsCache.get(resourceId);
   if (!entry) return null;
   const ageMs = Date.now() - entry.fetchedAt;
-  if (ageMs > 2 * 60 * 1000) return null; // stale if older than 2 minutes
+  if (ageMs > CACHE_TTL_MS) return null;
   return entry.metrics;
-}
-
-// ── Instance ID resolution (mirrors awsAdapter logic, no import coupling) ──
-function buildInstanceMap(): Record<string, string> {
-  const raw = process.env.AWS_INSTANCE_MAP ?? '';
-  const map: Record<string, string> = {};
-  for (const entry of raw.split(',')) {
-    const [resourceId, instanceId] = entry.trim().split(':');
-    if (resourceId && instanceId) map[resourceId] = instanceId;
-  }
-  return map;
-}
-
-function getInstanceId(resourceId: string): string | null {
-  const map = buildInstanceMap();
-  return map[resourceId] ?? (resourceId.startsWith('i-') ? resourceId : null);
 }
 
 // ── Metrics polling ────────────────────────────────────────────────────────
@@ -82,7 +69,7 @@ async function pollMetrics(): Promise<void> {
 async function reconcileState(): Promise<void> {
   if (!isAwsMode()) return; // nothing to reconcile in simulation mode
 
-  const ec2 = new EC2Client({ region: process.env.AWS_REGION ?? 'ap-south-1' });
+  const ec2 = new EC2Client({ region: AWS_REGION });
   try {
     const resources = await getAllResources();
 
@@ -140,6 +127,51 @@ async function reconcileState(): Promise<void> {
   }
 }
 
+// ── Detection helpers ─────────────────────────────────────────────────────
+async function logAnomalyIfNew(resource: Resource, anomalies: DetectedAnomaly[]): Promise<void> {
+  if (hasAnomalyBeenLogged(resource.id)) return;
+  const reasonLabel = getAnomalyReasonLabel(anomalies[0].type);
+  await addLog({
+    resourceId: resource.id,
+    type: 'anomaly',
+    message: `Anomaly detected on ${resource.name}: ${reasonLabel} (confidence: ${Math.round(anomalies[0].confidence * 100)}%)`,
+  });
+  markAnomalyLogged(resource.id);
+}
+
+async function autoStopIfEnabled(resource: Resource, anomalies: DetectedAnomaly[]): Promise<void> {
+  if (!getAutoMode() || hasAutoStopped(resource.id)) return;
+  markAutoStopped(resource.id);
+
+  if (isAwsMode() && !getLiveMode()) {
+    await addLog({
+      resourceId: resource.id,
+      type: 'action',
+      message: `[SIMULATION] Auto-stop simulated for ${resource.name} — Live Mode is OFF`,
+    });
+  } else {
+    try {
+      await addLog({ resourceId: resource.id, type: 'action', message: `AWS_ACTION_TRIGGERED — auto-stop sent to ${resource.instanceType ?? resource.id}` });
+      await getAdapter().stopResource(resource.id);
+      await addLog({ resourceId: resource.id, type: 'action', message: `AWS_ACTION_COMPLETED — ${resource.name} auto-stopped on EC2` });
+    } catch (err) {
+      console.error(`[syncEngine] Auto-stop EC2 call failed for ${resource.id}:`, (err as Error).message);
+      await addLog({ resourceId: resource.id, type: 'action', message: `AWS_ACTION_FAILED — auto-stop failed for ${resource.name}: ${(err as Error).message}` });
+      return; // skip DB update if EC2 failed
+    }
+  }
+
+  await stopResource(resource.id);
+  setLastActionAt(resource.id);
+  const reasonLabel = getAnomalyReasonLabel(anomalies[0].type);
+  await addLog({
+    resourceId: resource.id,
+    type: 'action',
+    message: `${resource.name} auto-stopped by system — ${reasonLabel}`,
+  });
+  console.log(`[syncEngine] Auto-stopped ${resource.id}: ${reasonLabel}`);
+}
+
 // ── Detection + auto-mode cycle ───────────────────────────────────────────
 async function runDetectionCycle(): Promise<void> {
   try {
@@ -153,51 +185,8 @@ async function runDetectionCycle(): Promise<void> {
       const anomalies = runDetectionPipeline(cached);
       if (anomalies.length === 0) continue;
 
-      // Log anomaly (deduped)
-      if (!hasAnomalyBeenLogged(resource.id)) {
-        const reason = anomalies[0].type;
-        const reasonLabel = reason === 'spike_usage' ? 'CPU spike detected' : 'low CPU usage';
-        await addLog({
-          resourceId: resource.id,
-          type: 'anomaly',
-          message: `Anomaly detected on ${resource.name}: ${reasonLabel} (confidence: ${Math.round(anomalies[0].confidence * 100)}%)`,
-        });
-        markAnomalyLogged(resource.id);
-      }
-
-      // Auto-mode: stop the resource if enabled
-      if (getAutoMode() && !hasAutoStopped(resource.id)) {
-        markAutoStopped(resource.id);
-
-        const awsMode = process.env.DATA_SOURCE === 'aws';
-        if (awsMode && !getLiveMode()) {
-          await addLog({
-            resourceId: resource.id,
-            type: 'action',
-            message: `[SIMULATION] Auto-stop simulated for ${resource.name} — Live Mode is OFF`,
-          });
-        } else {
-          try {
-            await addLog({ resourceId: resource.id, type: 'action', message: `AWS_ACTION_TRIGGERED — auto-stop sent to ${resource.instanceType ?? resource.id}` });
-            await getAdapter().stopResource(resource.id);
-            await addLog({ resourceId: resource.id, type: 'action', message: `AWS_ACTION_COMPLETED — ${resource.name} auto-stopped on EC2` });
-          } catch (err) {
-            console.error(`[syncEngine] Auto-stop EC2 call failed for ${resource.id}:`, (err as Error).message);
-            await addLog({ resourceId: resource.id, type: 'action', message: `AWS_ACTION_FAILED — auto-stop failed for ${resource.name}: ${(err as Error).message}` });
-            continue; // skip DB update if EC2 failed
-          }
-        }
-
-        await stopResource(resource.id);
-        setLastActionAt(resource.id);
-        const reasonLabel = anomalies[0].type === 'spike_usage' ? 'CPU spike detected' : 'low CPU usage';
-        await addLog({
-          resourceId: resource.id,
-          type: 'action',
-          message: `${resource.name} auto-stopped by system — ${reasonLabel}`,
-        });
-        console.log(`[syncEngine] Auto-stopped ${resource.id}: ${reasonLabel}`);
-      }
+      await logAnomalyIfNew(resource, anomalies);
+      await autoStopIfEnabled(resource, anomalies);
     }
   } catch (err) {
     console.error('[syncEngine] Detection cycle failed:', err);

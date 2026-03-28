@@ -12,28 +12,16 @@ import { Metric, Resource } from '../models/types';
 import { CloudAdapter } from './types';
 import { mockAdapter } from './mockAdapter';
 import { getCostPerHour } from '../services/costRates';
-import { withRetry, classifyAwsError, isPermissionError } from '../utils/retry';
+import { withRetry, classifyAwsError, isPermissionError } from '../utils/awsRetry';
+import { AWS_REGION } from '../utils/awsConfig';
+import { getInstanceId } from '../utils/instanceMap';
 
-const client = new CloudWatchClient({ region: process.env.AWS_REGION ?? 'ap-south-1' });
-const ec2 = new EC2Client({ region: process.env.AWS_REGION ?? 'ap-south-1' });
+const client = new CloudWatchClient({ region: AWS_REGION });
+const ec2 = new EC2Client({ region: AWS_REGION });
 
-// Parses AWS_INSTANCE_MAP=res-001:i-0abc,res-002:i-0def into a lookup map.
-function buildInstanceMap(): Record<string, string> {
-  const raw = process.env.AWS_INSTANCE_MAP ?? '';
-  const map: Record<string, string> = {};
-  for (const entry of raw.split(',')) {
-    const [resourceId, instanceId] = entry.trim().split(':');
-    if (resourceId && instanceId) map[resourceId] = instanceId;
-  }
-  return map;
-}
-
-const instanceMap = buildInstanceMap();
-
-function getInstanceId(resourceId: string): string | null {
-  // Explicit mapping takes priority; fall back to treating the ID directly as an instance ID
-  return instanceMap[resourceId] ?? (resourceId.startsWith('i-') ? resourceId : null);
-}
+const METRICS_WINDOW_MINUTES = 60;
+const METRICS_WINDOW_MS = METRICS_WINDOW_MINUTES * 60 * 1000;
+const STATE_POLL_INTERVAL_MS = 3_000;
 
 /**
  * Polls DescribeInstances every 3s until instance reaches targetState or timeout.
@@ -46,7 +34,7 @@ async function waitForInstanceState(
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 3_000));
+    await new Promise((r) => setTimeout(r, STATE_POLL_INTERVAL_MS));
     const resp = await ec2.send(new DescribeInstancesCommand({ InstanceIds: [instanceId] }));
     const currentState = resp.Reservations?.[0]?.Instances?.[0]?.State?.Name;
     if (currentState === targetState) return;
@@ -102,7 +90,7 @@ export const awsAdapter: CloudAdapter = {
 
     try {
       const now = new Date();
-      const startTime = new Date(now.getTime() - 60 * 60 * 1000); // last 60 min
+      const startTime = new Date(now.getTime() - METRICS_WINDOW_MS);
 
       const cmd = new GetMetricStatisticsCommand({
         Namespace: 'AWS/EC2',
@@ -129,7 +117,7 @@ export const awsAdapter: CloudAdapter = {
       const nowMs = now.getTime();
 
       // Collect into a slot array (null = no CloudWatch datapoint for this minute)
-      const slots: (number | null)[] = new Array(60).fill(null);
+      const slots: (number | null)[] = new Array(METRICS_WINDOW_MINUTES).fill(null);
       for (let i = 59; i >= 0; i--) {
         const pointMs = nowMs - i * 60_000;
         const match = datapoints.find(
@@ -170,10 +158,6 @@ export const awsAdapter: CloudAdapter = {
       }
       return mockAdapter.getMetrics(resourceId, resource, since);
     }
-  },
-
-  async getCost(_resourceId: string): Promise<number> {
-    return 0;
   },
 
   async stopResource(resourceId: string): Promise<void> {

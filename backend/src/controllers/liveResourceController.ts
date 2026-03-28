@@ -2,19 +2,10 @@ import { Request, Response } from 'express';
 import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
 import { getResource } from '../store/inMemoryStore';
 import { Resource } from '../models/types';
+import { AWS_REGION, isAwsMode } from '../utils/awsConfig';
+import { getInstanceEntries } from '../utils/instanceMap';
 
-const ec2 = new EC2Client({ region: process.env.AWS_REGION ?? 'ap-south-1' });
-
-function parseInstanceMap(): Array<{ resourceId: string; instanceId: string }> {
-  const raw = process.env.AWS_INSTANCE_MAP ?? '';
-  return raw
-    .split(',')
-    .map((entry) => {
-      const [resourceId, instanceId] = entry.trim().split(':');
-      return resourceId && instanceId ? { resourceId, instanceId } : null;
-    })
-    .filter(Boolean) as Array<{ resourceId: string; instanceId: string }>;
-}
+const ec2 = new EC2Client({ region: AWS_REGION });
 
 function toStatus(state?: string): 'running' | 'stopped' {
   return state === 'running' ? 'running' : 'stopped';
@@ -50,12 +41,12 @@ async function fetchLiveResource(resourceId: string, instanceId: string): Promis
 }
 
 export async function getLiveResources(_req: Request, res: Response): Promise<void> {
-  if (process.env.DATA_SOURCE !== 'aws') {
+  if (!isAwsMode()) {
     res.json([]);
     return;
   }
 
-  const entries = parseInstanceMap();
+  const entries = getInstanceEntries();
   const results = await Promise.all(
     entries.map(({ resourceId, instanceId }) => fetchLiveResource(resourceId, instanceId))
   );

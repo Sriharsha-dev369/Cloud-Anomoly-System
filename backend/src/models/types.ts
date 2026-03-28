@@ -21,13 +21,6 @@ export interface Anomaly {
   detectedAt: string;
 }
 
-export interface Action {
-  resourceId: string;
-  type: 'stop';
-  status: 'pending' | 'completed';
-  triggeredBy: 'user' | 'system';
-}
-
 export interface Log {
   timestamp: string;
   resourceId: string;

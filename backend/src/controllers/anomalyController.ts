@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { generateMetrics } from '../services/metricsService';
 import { detectAnomalies } from '../services/anomalyService';
 import { getResource, addLog, hasAnomalyBeenLogged, markAnomalyLogged } from '../store/inMemoryStore';
+import { getAnomalyReasonLabel } from '../utils/anomalyLabels';
 
 export async function getAnomalies(req: Request, res: Response): Promise<void> {
   const resourceId = req.query.resourceId as string | undefined;
@@ -24,8 +25,7 @@ export async function getAnomalies(req: Request, res: Response): Promise<void> {
 
   if (anomalies.length > 0) {
     if (!hasAnomalyBeenLogged(resource.id)) {
-      const reason = anomalies[0].type;
-      const reasonLabel = reason === 'spike_usage' ? 'CPU spike detected' : 'low CPU usage';
+      const reasonLabel = getAnomalyReasonLabel(anomalies[0].type);
       await addLog({ resourceId: resource.id, type: 'anomaly', message: `Anomaly detected on ${resource.name}: ${reasonLabel} (confidence: ${Math.round(anomalies[0].confidence * 100)}%)` });
       markAnomalyLogged(resource.id);
     }

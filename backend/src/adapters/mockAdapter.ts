@@ -65,10 +65,6 @@ export const mockAdapter: CloudAdapter = {
     return metrics;
   },
 
-  async getCost(_resourceId: string): Promise<number> {
-    return 0; // cost is embedded per-metric; not used as a standalone value
-  },
-
   async stopResource(_resourceId: string): Promise<void> {},
   async startResource(_resourceId: string): Promise<void> {},
 };

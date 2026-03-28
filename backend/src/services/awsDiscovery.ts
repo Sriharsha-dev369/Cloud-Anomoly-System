@@ -2,8 +2,9 @@ import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
 import { upsertResource, clearSeedResources } from '../repositories/resourceRepository';
 import { clearSeedLogs } from '../repositories/logRepository';
 import { getCostPerHour } from './costRates';
+import { AWS_REGION } from '../utils/awsConfig';
 
-const ec2 = new EC2Client({ region: process.env.AWS_REGION ?? 'ap-south-1' });
+const ec2 = new EC2Client({ region: AWS_REGION });
 
 export async function syncEC2Instances(): Promise<void> {
   try {

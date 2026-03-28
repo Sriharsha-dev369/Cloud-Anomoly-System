@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Resource } from '../models/types';
 import {
   stopResource,
   restartResource,
@@ -9,10 +10,11 @@ import {
   setLastActionAt,
 } from '../store/inMemoryStore';
 import { getAdapter } from '../adapters';
+import { isAwsMode } from '../utils/awsConfig';
 
 const AWS_COOLDOWN_MS = 5 * 60 * 1000;  // 5 minutes — real EC2 needs time
 const MOCK_COOLDOWN_MS = 30 * 1000;     // 30 seconds — simulation is instant
-const COOLDOWN_MS = process.env.DATA_SOURCE === 'aws' ? AWS_COOLDOWN_MS : MOCK_COOLDOWN_MS;
+const COOLDOWN_MS = isAwsMode() ? AWS_COOLDOWN_MS : MOCK_COOLDOWN_MS;
 
 function formatDuration(ms: number): string {
   const h = Math.floor(ms / 3_600_000);
@@ -28,51 +30,77 @@ function cooldownRemaining(resourceId: string): number {
   return Math.max(0, COOLDOWN_MS - (Date.now() - last));
 }
 
-export async function postStop(req: Request, res: Response): Promise<void> {
-  const resourceId = req.body?.resourceId as string | undefined;
-  const source = req.body?.source as string | undefined;
-
-  let existing: Awaited<ReturnType<typeof getResource>>;
+// Shared validation: resource lookup, status check, cooldown guard.
+// Returns the resource if valid, or null after sending an error response.
+async function validateResourceForAction(
+  resourceId: string | undefined,
+  rejectedStatus: 'stopped' | 'running',
+  res: Response,
+): Promise<Resource | null> {
+  let existing: Resource;
   try {
     existing = await getResource(resourceId);
   } catch {
     res.status(404).json({ error: 'Resource not found' });
-    return;
+    return null;
   }
 
-  if (existing.status === 'stopped') {
-    res.status(409).json({ error: `${existing.name} is already stopped` });
-    return;
+  if (existing.status === rejectedStatus) {
+    res.status(409).json({ error: `${existing.name} is already ${rejectedStatus}` });
+    return null;
   }
 
-  // Cooldown guard
   const remaining = cooldownRemaining(resourceId!);
   if (remaining > 0) {
     const secs = Math.ceil(remaining / 1000);
     res.status(429).json({ error: `Cooldown active. Try again in ${Math.floor(secs / 60)}m ${secs % 60}s.` });
-    return;
+    return null;
   }
 
-  // LiveMode gate — skip real AWS action if liveMode is OFF
-  const awsMode = process.env.DATA_SOURCE === 'aws';
-  if (awsMode && !getLiveMode()) {
+  return existing;
+}
+
+// Shared live-mode gate + adapter action + logging.
+// Returns null on success, or an error string on failure.
+async function executeAdapterAction(
+  existing: Resource,
+  resourceId: string,
+  source: string | undefined,
+  actionVerb: 'stop' | 'start',
+  adapterMethod: 'stopResource' | 'startResource',
+): Promise<string | null> {
+  if (isAwsMode() && !getLiveMode()) {
+    const label = actionVerb === 'stop' ? 'Stop' : 'Start';
     await addLog({
       resourceId: existing.id,
       type: 'action',
-      message: `[SIMULATION] Stop simulated for ${existing.name} — Live Mode is OFF`,
+      message: `[SIMULATION] ${label} simulated for ${existing.name} — Live Mode is OFF`,
     });
-  } else {
-    try {
-      await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_TRIGGERED — stop sent to ${existing.instanceType ?? existing.id}` });
-      await getAdapter(source).stopResource(resourceId!);
-      await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_COMPLETED — ${existing.name} stopped on EC2` });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_FAILED — stop failed for ${existing.name}: ${message}` });
-      res.status(502).json({ error: `Failed to stop instance on EC2: ${message}` });
-      return;
-    }
+    return null;
   }
+
+  try {
+    await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_TRIGGERED — ${actionVerb} sent to ${existing.instanceType ?? existing.id}` });
+    await getAdapter(source)[adapterMethod](resourceId);
+    const pastTense = actionVerb === 'stop' ? 'stopped' : 'started';
+    await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_COMPLETED — ${existing.name} ${pastTense} on EC2` });
+    return null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_FAILED — ${actionVerb} failed for ${existing.name}: ${message}` });
+    return `Failed to ${actionVerb} instance on EC2: ${message}`;
+  }
+}
+
+export async function postStop(req: Request, res: Response): Promise<void> {
+  const resourceId = req.body?.resourceId as string | undefined;
+  const source = req.body?.source as string | undefined;
+
+  const existing = await validateResourceForAction(resourceId, 'stopped', res);
+  if (!existing) return;
+
+  const error = await executeAdapterAction(existing, resourceId!, source, 'stop', 'stopResource');
+  if (error) { res.status(502).json({ error }); return; }
 
   const resource = await stopResource(resourceId);
   setLastActionAt(resourceId!);
@@ -87,47 +115,11 @@ export async function postRestart(req: Request, res: Response): Promise<void> {
   const resourceId = req.body?.resourceId as string | undefined;
   const source = req.body?.source as string | undefined;
 
-  let existing: Awaited<ReturnType<typeof getResource>>;
-  try {
-    existing = await getResource(resourceId);
-  } catch {
-    res.status(404).json({ error: 'Resource not found' });
-    return;
-  }
+  const existing = await validateResourceForAction(resourceId, 'running', res);
+  if (!existing) return;
 
-  if (existing.status === 'running') {
-    res.status(409).json({ error: `${existing.name} is already running` });
-    return;
-  }
-
-  // Cooldown guard
-  const remaining = cooldownRemaining(resourceId!);
-  if (remaining > 0) {
-    const secs = Math.ceil(remaining / 1000);
-    res.status(429).json({ error: `Cooldown active. Try again in ${Math.floor(secs / 60)}m ${secs % 60}s.` });
-    return;
-  }
-
-  // LiveMode gate — skip real AWS action if liveMode is OFF
-  const awsMode = process.env.DATA_SOURCE === 'aws';
-  if (awsMode && !getLiveMode()) {
-    await addLog({
-      resourceId: existing.id,
-      type: 'action',
-      message: `[SIMULATION] Start simulated for ${existing.name} — Live Mode is OFF`,
-    });
-  } else {
-    try {
-      await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_TRIGGERED — start sent to ${existing.instanceType ?? existing.id}` });
-      await getAdapter(source).startResource(resourceId!);
-      await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_COMPLETED — ${existing.name} started on EC2` });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await addLog({ resourceId: existing.id, type: 'action', message: `AWS_ACTION_FAILED — start failed for ${existing.name}: ${message}` });
-      res.status(502).json({ error: `Failed to start instance on EC2: ${message}` });
-      return;
-    }
-  }
+  const error = await executeAdapterAction(existing, resourceId!, source, 'start', 'startResource');
+  if (error) { res.status(502).json({ error }); return; }
 
   const resource = await restartResource(resourceId);
   setLastActionAt(resourceId!);
