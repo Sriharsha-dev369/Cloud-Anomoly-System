@@ -19,6 +19,12 @@ export interface Anomaly {
   resourceId: string;
   type: 'low_usage' | 'spike_usage';
   detectedAt: string;
+  ruleTriggered?: boolean;
+  mlTriggered?: boolean;
+  confidenceLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+  confidence?: number;
+  anomalyScore?: number;
+  reason?: string;
 }
 
 export interface Action {

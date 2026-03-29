@@ -1,410 +1,361 @@
-# Cloud Cost Optimizer – Production SaaS Mode (Agent Instructions)
-
-## HARD RULES FOR BUILDING(STRICT)
-
-Key Strategy
-
-- Build layer by layer, not everything together
-- Keep existing pipeline intact
-- Add user layer on top, not rewrite
-
-## PROJECT GOAL
-
-Transform the system from a **demo / hardcoded setup** into a **real multi-user SaaS platform**.
-
-Demonstrate:
-
-User Auth → AWS Connect → Real Resources → Detection → Safe Action → Cost Savings → Logs → UI
-
-System must work for **any user connecting their own AWS account**, not just predefined data.
+Below is your **upgraded claude.md (ML Layer)** rewritten in the same strong, structured, production-style format as your AWS document.
 
 ---
 
-## CORE FLOW (PRODUCTION MODE)
+# Cloud Cost Optimizer – ML Layer (Isolation Forest) Agent Instructions
 
-```text
-User → Auth → AWS Connect → Fetch Resources → Normalize → Detect → Decide → Act → Cost Engine → Logs → UI
+## PROJECT GOAL
+
+Enhance anomaly detection using **Isolation Forest (ML layer)** while preserving the existing **rule-based system as primary**.
+
+Demonstrate:
+
+Metrics → Rule Detection → ML Detection → Hybrid Decision → Confidence → Logs → UI
+
+System must:
+
+* Work fully without ML
+* Improve detection when ML is available
+* Never break existing pipeline
+
+---
+
+## CORE FLOW (HYBRID DETECTION)
+
+```text id="ml-flow-1"
+Metrics → Normalize → Rule Detection → Feature Builder → ML Model → Combine → Decision → Logs → UI
 ```
 
-The system must clearly show:
+System must clearly show:
 
-1. User-specific environment (no shared/global state)
-2. Secure AWS credential usage
-3. Real EC2 resources fetched dynamically
-4. Detection pipeline working unchanged
-5. Safe execution of actions (per user)
-6. Accurate cost + savings tracking
+1. Rule-based anomaly detection (existing)
+2. Feature extraction from metrics
+3. ML anomaly scoring (Isolation Forest)
+4. Hybrid decision (rules + ML)
+5. Confidence-based output
+6. Logs showing ML participation
 
-If all 6 work → Production system complete
+If all 6 work → ML layer complete
 
 ---
 
 ## HARD RULES (STRICT)
 
-- Do NOT break existing detection logic
-- Do NOT break simulation mode
-- Do NOT store or expose raw AWS credentials
-- Do NOT mix user data across accounts
-- Do NOT tightly couple AWS logic with core system
-- Always normalize AWS data to internal format
-- Always maintain fallback (simulation mode)
+* Do NOT remove or modify existing rule logic
+* ML must be an optional enhancement
+* If ML fails → system must fallback to rules instantly
+* Do NOT block main pipeline for ML
+* Do NOT expose ML complexity to frontend
+* Keep ML lightweight (no heavy infra)
 
 ---
 
 ## CORE ARCHITECTURE
 
-```text
-Frontend (User Dashboard)
+```text id="ml-arch-1"
+Frontend (Dashboard)
         ↓
-Backend API (Auth + Business Logic)
+Backend API
         ↓
-User Context Layer (per-user isolation)
+Detection Layer
+   ├── Rule Engine (Primary)
+   └── ML Engine (Isolation Forest)
         ↓
-Cloud Adapter Layer
-   ├── MockAdapter
-   └── AWSAdapter
-        ↓
-Detection Pipeline
+Hybrid Decision Engine
         ↓
 Action Layer
         ↓
 Cost Engine
         ↓
-Database (User-scoped)
+Data Layer (DB)
 ```
 
 ---
 
-## USER SYSTEM (CRITICAL)
+## ML ENGINE DESIGN (CRITICAL)
 
-### Authentication
+### Responsibilities
 
-Implement:
-
-- Signup / Login
-- JWT-based authentication
-- Password hashing (bcrypt)
-
-Each request must:
-
-- Be authenticated
-- Be tied to a specific user
+* Accept feature vectors
+* Run Isolation Forest
+* Return anomaly score + flag
 
 ---
 
-### User Isolation
+### Interface
 
-Rule:
-
-- Every user has:
-  - Their own AWS connection
-  - Their own resources
-  - Their own logs
-  - Their own anomalies
-
-No shared memory or global variables
-
----
-
-## AWS INTEGRATION (USER-BASED)
-
-### Credential Handling
-
-Support:
-
-- Access Key ID
-- Secret Access Key
-
-Rules:
-
-- Store encrypted in DB
-- Never send to frontend
-- Validate before saving
-
----
-
-### AWSAdapter Responsibilities
-
-- Fetch EC2 instances
-- Fetch CloudWatch metrics
-- Execute stop/start actions
-- Provide cost estimation
-
----
-
-## RESOURCE MANAGEMENT
-
-### Dynamic Fetching
-
-Replace hardcoded resources with:
-
-- Real EC2 instances per user
-
-Each resource:
-
-```ts
-Resource = {
-  instanceId,
-  type,
-  state,
-  region,
-  userId,
-};
+```ts id="ml-iface-1"
+detectAnomaly(features): {
+  anomalyScore: number,
+  isAnomaly: boolean
+}
 ```
 
 ---
 
-### Metrics (CloudWatch)
+### Rule
 
-Normalize to:
+ML must return **simple, normalized output** usable by system.
 
-```ts
-Metric = {
+---
+
+## FEATURE ENGINEERING (MANDATORY)
+
+### Input Source
+
+Metrics from:
+
+* CPU
+* Network
+* Disk
+* Cost
+
+---
+
+### Feature Vector
+
+```ts id="ml-features"
+[
+  cpuUtilization,
+  networkIn,
+  networkOut,
+  diskReadOps,
+  diskWriteOps,
+  costPerHour,
+  costChangeRate,
+  cpuToCostRatio
+]
+```
+
+---
+
+### Derived Features (IMPORTANT)
+
+```ts id="ml-derived"
+costChangeRate = currentCost - previousCost
+cpuToCostRatio = cpu / cost
+```
+
+---
+
+### Rule
+
+Feature structure must remain **consistent across all resources**
+
+---
+
+## ML MODEL (ISOLATION FOREST)
+
+### Implementation Options
+
+#### Option A (Preferred)
+
+* Python + scikit-learn
+
+#### Option B
+
+* Node.js package (lighter, less accurate)
+
+---
+
+### Model Config
+
+```python id="ml-config"
+IsolationForest(
+  n_estimators=100,
+  contamination=0.05,
+  random_state=42
+)
+```
+
+---
+
+### Training Strategy
+
+* Unsupervised learning
+* Train on recent historical data
+* Minimum: 20–30 samples
+* Retrain periodically
+
+---
+
+## HYBRID DECISION ENGINE (CRITICAL)
+
+ML must NOT override rules blindly.
+
+### Decision Logic
+
+```ts id="ml-decision"
+IF (ruleTriggered)
+   → anomaly = true
+
+ELSE IF (mlTriggered AND anomalyScore < threshold)
+   → anomaly = true
+
+ELSE
+   → anomaly = false
+```
+
+---
+
+### Confidence Calculation
+
+```ts id="ml-confidence"
+IF ruleTriggered → HIGH
+ELSE IF mlTriggered → MEDIUM
+ELSE → LOW
+```
+
+---
+
+## DATA STORAGE (EXTENSION)
+
+Extend anomaly schema:
+
+```ts id="ml-schema"
+{
   resourceId,
   timestamp,
-  cpu,
-  cost,
-};
+  ruleTriggered: boolean,
+  mlTriggered: boolean,
+  anomalyScore: number,
+  confidence: "LOW" | "MEDIUM" | "HIGH",
+  reason: string
+}
 ```
 
-Rule:
-
-Detection system must NOT know data source
-
 ---
 
-## DETECTION SYSTEM
+## PERFORMANCE RULES
 
-- Use existing logic unchanged
-- Must work on normalized data
-- Must run per user
+* ML must run asynchronously
+* Max ML response time: ~2 seconds
 
----
+### Timeout Handling
 
-## ACTION SYSTEM (REAL AWS)
-
-Actions:
-
-- Stop instance
-- Start instance
-
-Rules:
-
-- Always scoped per user
-- Require confirmation
-- Apply cooldown (prevent spam)
-- Sync DB after execution
-
----
-
-## COST ENGINE
-
-Rule:
-
-Keep existing logic
-
-```ts
-cost = hourlyRate × usageDuration
+```ts id="ml-timeout"
+if ML timeout:
+   skip ML → use rule result
 ```
 
-Enhancements:
+---
 
-- Use real instance types
-- Track per-user savings
+## LOGGING (MANDATORY)
+
+Logs must include:
+
+* "ML_FEATURE_BUILT"
+* "ML_ANOMALY_DETECTED"
+* "ML_SKIPPED_FALLBACK"
+* "HYBRID_DECISION_MADE"
 
 ---
 
-## NORMALIZATION LAYER (MANDATORY)
+## FAILURE HANDLING
 
-All AWS data must be converted into:
+If ML fails:
 
-- Resource
-- Metric
-- Action
+* Ignore ML result
+* Continue with rule-based detection
+* Log failure event
 
-Rule:
-
-Core system must remain **cloud-agnostic**
+System must remain fully functional
 
 ---
 
-## DATA STORAGE
+## API CONTRACT (EXTENDED, NOT BROKEN)
 
-Store per user:
+Existing APIs remain unchanged.
 
-- resources
-- metrics
-- anomalies
-- actions
-- savings
-- logs
-- aws credentials (encrypted)
+### Add optional ML fields:
 
-Do NOT store raw AWS responses
-
----
-
-## API CONTRACT
-
-Extend existing APIs with auth:
-
-- POST /auth/signup
-- POST /auth/login
-- POST /aws/connect
-
-Existing (user-scoped):
-
-- GET /resources
-- GET /metrics
-- GET /anomalies
-- POST /action/stop
-- GET /savings
-- GET /logs
-
-Rule:
-
-All APIs must respect user isolation
+```json id="ml-api"
+{
+  "ruleTriggered": true,
+  "mlTriggered": false,
+  "confidence": "HIGH",
+  "anomalyScore": -0.21
+}
+```
 
 ---
 
 ## UI REQUIREMENTS
 
-### Authentication UI
-
-- Login / Signup pages
-
----
-
-### AWS Connect UI
-
-- Input credentials securely
-- Show connection status
-
----
-
-### Dashboard
-
-Display:
-
-- User’s EC2 instances
-- CPU usage
-- Cost/hour
-- Anomalies
-- Actions taken
-- Savings
-
----
-
-### Mode Indicator
+### Anomaly Source Indicator (NEW)
 
 Show:
 
-- "Simulation Mode"
-- "AWS Live Mode"
+* Rule-based
+* ML-based
+* Hybrid
 
 ---
 
-### Safety UX
+### Confidence Display
 
-- Confirmation before stopping instance
-- Loading states
-- Error handling (AWS failures)
-
----
-
-## FALLBACK SYSTEM
-
-If:
-
-- No AWS connected OR
-- AWS fails
-
-Then:
-
-→ Switch to simulation mode
-
-```env
-DATA_SOURCE = aws | simulation
-```
+* HIGH → strong anomaly
+* MEDIUM → ML detected
+* LOW → normal
 
 ---
 
-## CODE QUALITY RULES
+### Behavior
 
-- Remove dead code
-- Remove hardcoded values
-- Use service-based structure:
-  - authService
-  - awsService
-  - resourceService
-  - anomalyService
-
-- Use environment variables properly
-- Keep functions small and testable
+* UI must remain simple
+* Do NOT expose ML internals
+* Show meaningful explanation only
 
 ---
 
-## EXPECTED PROJECT STRUCTURE
+## CODE STRUCTURE (EXPECTED)
 
 backend/
 
-- server.ts
-- routes/
-- controllers/
-- services/
-- adapters/
-  - MockAdapter.ts
-  - AWSAdapter.ts
+* services/
 
-- middleware/
-  - authMiddleware.ts
+  * mlService.ts
+  * featureService.ts
+  * anomalyService.ts (updated)
 
-- models/
-- utils/
-- store/
+* modules/
 
-frontend/
+  * isolationForest/
 
-- pages/
-  - Login.jsx
-  - Signup.jsx
-  - Dashboard.jsx
-  - AWSConnect.jsx
+* detectors/ (unchanged)
 
-- components/
-  - ResourceCard.jsx
-  - ModeToggle.jsx
-  - AnomalyPanel.jsx
+---
+
+## IMPLEMENTATION STYLE
+
+* Keep ML isolated from core logic
+* No tight coupling with detection pipeline
+* Small, testable functions
+* Prefer clarity over ML complexity
 
 ---
 
 ## SUCCESS CHECKLIST (MUST PASS)
 
-- User can signup/login
-- AWS account connects successfully
-- EC2 instances fetched dynamically
-- Metrics normalized correctly
-- Detection works per user
-- Actions (stop/start) work on real AWS
-- Cost + savings tracked per user
-- Logs reflect real events
-- Simulation mode still works perfectly
-- UI behaves like a real SaaS product
+* Rule-based detection works unchanged
+* ML detects additional anomalies
+* False positives reduced
+* ML failures do not break system
+* Hybrid decision works correctly
+* Logs reflect ML activity
+* UI shows confidence + anomaly source
 
 ---
 
 ## PRIORITY ORDER
 
-1. Auth system (JWT + user model)
-2. AWS credential integration
-3. Resource fetching (EC2)
-4. User-scoped DB refactor
-5. Metrics + normalization
-6. Detection per user
-7. Action system (real AWS)
-8. Cost + savings tracking
-9. UI integration
-10. Cleanup + stabilization
+1. Feature builder
+2. ML service (Isolation Forest)
+3. Hybrid decision logic
+4. DB schema update
+5. Logging
+6. API response update
+7. UI indicators
 
 ---
 
@@ -412,15 +363,11 @@ frontend/
 
 This phase ensures:
 
-> “System works for real users with real cloud accounts”
+> “System becomes intelligent without losing reliability”
 
-Next phase can focus on:
+Rules provide stability
+ML provides adaptability
 
-> “Automation + Intelligence (ML / AI decisions)”
+Do not replace rules — enhance them
 
-Do NOT mix both.
 
-First: **Make it usable**
-Then: **Make it intelligent**
-
----

@@ -20,6 +20,11 @@ export interface Anomaly {
   type: 'low_usage' | 'spike_usage';
   confidence: number;
   detectedAt: string;
+  ruleTriggered?: boolean;
+  mlTriggered?: boolean;
+  anomalyScore?: number;
+  confidenceLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+  reason?: string;
 }
 
 export interface Log {

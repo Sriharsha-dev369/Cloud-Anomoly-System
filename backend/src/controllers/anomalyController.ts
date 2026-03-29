@@ -19,13 +19,18 @@ export async function getAnomalies(req: Request, res: Response): Promise<void> {
       type: a.type,
       confidence: a.confidence,
       detectedAt: a.detectedAt,
+      ruleTriggered: a.ruleTriggered,
+      mlTriggered: a.mlTriggered,
+      anomalyScore: a.anomalyScore,
+      confidenceLevel: a.confidenceLevel,
+      reason: a.reason,
     })));
     return;
   }
 
   // Fallback: on-demand detection (demo resources or before first background cycle).
   const metrics = await generateMetrics(resourceId, source, undefined, userId);
-  const anomalies = detectAnomalies(metrics);
+  const anomalies = await detectAnomalies(metrics);
 
   let resource;
   try {

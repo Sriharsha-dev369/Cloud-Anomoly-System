@@ -5,7 +5,15 @@ import { DetectedAnomaly } from '../detectors/types';
 export async function upsertAnomaly(userId: string, anomaly: DetectedAnomaly): Promise<void> {
   await AnomalyModel.findOneAndUpdate(
     { userId, resourceId: anomaly.resourceId, type: anomaly.type },
-    { confidence: anomaly.confidence, detectedAt: anomaly.detectedAt },
+    { 
+      confidence: anomaly.confidence, 
+      detectedAt: anomaly.detectedAt,
+      ruleTriggered: anomaly.ruleTriggered,
+      mlTriggered: anomaly.mlTriggered,
+      anomalyScore: anomaly.anomalyScore,
+      confidenceLevel: anomaly.confidenceLevel,
+      reason: anomaly.reason
+    },
     { upsert: true },
   );
 }

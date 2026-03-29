@@ -1,6 +1,6 @@
 import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
 import { Metric, Resource } from '../models/types';
-import { runDetectionPipeline } from '../detectors';
+import { detectAnomalies } from './anomalyService';
 import { DetectedAnomaly } from '../detectors/types';
 import { getAdapter } from '../adapters';
 import {
@@ -219,7 +219,7 @@ async function runDetectionCycle(): Promise<void> {
       const cached = getCachedMetrics(resource.id);
       if (!cached || cached.length === 0) continue;
 
-      const anomalies = runDetectionPipeline(cached);
+      const anomalies = await detectAnomalies(cached);
       if (anomalies.length === 0) continue;
 
       await logAnomalyIfNew(resource, anomalies);
@@ -242,7 +242,7 @@ async function runUserDetectionCycle(): Promise<void> {
           const cached = getCachedMetrics(resource.id);
           if (!cached || cached.length === 0) continue;
 
-          const anomalies = runDetectionPipeline(cached);
+          const anomalies = await detectAnomalies(cached);
 
           if (anomalies.length === 0) {
             await clearAnomaliesForResource(userId, resource.id);
