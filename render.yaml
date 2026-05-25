@@ -2,6 +2,7 @@ services:
   - type: web
     name: cloud-anomaly-backend
     env: node
+    plan: free
     region: singapore
     rootDir: backend
     buildCommand: npm install && npm run build
