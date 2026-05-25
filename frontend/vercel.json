@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://cloud-anomaly-backend.onrender.com/$1"
+      "destination": "https://cloud-anomoly-system-1.onrender.com/$1"
     }
   ]
 }
